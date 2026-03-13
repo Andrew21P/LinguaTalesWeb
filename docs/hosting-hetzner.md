@@ -53,4 +53,4 @@ LIBRETRANSLATE_URL=http://127.0.0.1:5000
 LIBRETRANSLATE_API_KEY=
 ```
 
-The default MyMemory fallback is convenient for prototyping, but it is rate-limited and not ideal for production traffic.
+The default Google web translation path is much stronger than the old MyMemory fallback for prose, but for a serious hosted deployment you should still prefer a self-hosted translator you control.

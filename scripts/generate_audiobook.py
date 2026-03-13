@@ -130,7 +130,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--voice-sample", default="")
     parser.add_argument("--exaggeration", type=float, default=0.52)
     parser.add_argument("--speed", type=float, default=0.94)
-    parser.add_argument("--cfg-weight", type=float, default=0.32)
+    parser.add_argument("--cfg-weight", type=float, default=0.28)
     return parser.parse_args()
 
 

@@ -1,7 +1,7 @@
 {
-  "name": "linguatales",
+  "name": "voxenor",
   "version": "0.1.0",
-  "description": "Beautiful audiobook maker with local-friendly voice cloning and translation.",
+  "description": "Saved local audiobook library with PT-PT narration, translation, and voice cloning.",
   "main": "server.js",
   "type": "module",
   "scripts": {

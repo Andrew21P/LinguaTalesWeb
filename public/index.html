@@ -3,26 +3,48 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LinguaTales</title>
+    <title>Voxenor</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div id="auth-shell" class="auth-shell hidden">
+      <div class="auth-card">
+        <p class="eyebrow">Private library</p>
+        <h2>Unlock Voxenor</h2>
+        <p class="lede">
+          Your saved books, voice samples, progress, and page-by-page audio stay behind one lightweight local sign-in for now.
+        </p>
+        <label class="field">
+          <span>Email</span>
+          <input id="auth-email" type="text" autocomplete="username" placeholder="you@example.com" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="auth-password" type="password" autocomplete="current-password" placeholder="Password" />
+        </label>
+        <button id="auth-submit" class="primary-button" type="button">Enter Voxenor</button>
+        <p id="auth-status" class="status-text">Sign in once and your session stays cached on this device.</p>
+      </div>
+    </div>
+
     <div class="page-shell">
       <div class="ambient ambient-one"></div>
       <div class="ambient ambient-two"></div>
 
       <header class="topbar">
         <div class="brand-lockup">
-          <div class="brand-mark">LT</div>
+          <div class="brand-mark">VX</div>
           <div>
             <p class="eyebrow">Local audiobook studio</p>
-            <h1>LinguaTales</h1>
+            <h1>Voxenor</h1>
           </div>
         </div>
         <div class="topbar-meta">
           <span class="meta-pill">PT-PT fully supported</span>
+          <span class="meta-pill">Saved local library</span>
           <span class="meta-pill">OCR-ready intake</span>
           <span class="meta-pill">Inline translation</span>
+          <button id="logout-button" class="ghost-button topbar-action" type="button">Log out</button>
         </div>
       </header>
 
@@ -30,10 +52,9 @@
         <section class="panel hero-panel">
           <div class="hero-copy">
             <p class="eyebrow">Modern reading, local generation</p>
-            <h2>Turn text, scans, and book photos into a polished audiobook with your own voice.</h2>
+            <h2>Turn text, scans, and book photos into a saved spoken library with your own voice.</h2>
             <p class="lede">
-              Paste a book, upload a file or page photo, record a voice sample, then generate a local audiobook.
-              We detect the source language, translate when needed, and keep the cloned narration local and aligned to the reader.
+              Import a book once, keep the original, save the PT-PT reading version, and generate audio one page ahead so the reading flow stays light, resumable, and local.
             </p>
           </div>
 
@@ -42,7 +63,7 @@
               <div class="section-heading">
                 <div>
                   <p class="eyebrow">Book input</p>
-                  <h3>Paste text or upload pages</h3>
+                  <h3>Import a book into your library</h3>
                 </div>
                 <span class="soft-pill">PDF / EPUB / TXT / image OCR</span>
               </div>
@@ -84,7 +105,7 @@
                   </label>
                 </div>
 
-                <button class="primary-button" type="submit">Open the story</button>
+                <button class="primary-button" type="submit">Save to library</button>
               </form>
             </section>
 
@@ -103,10 +124,21 @@
                 <div id="supported-language-list" class="support-list"></div>
               </div>
 
+              <div class="profile-card">
+                <div>
+                  <p class="eyebrow">Reader profile</p>
+                  <h3 id="profile-name">Your reader profile</h3>
+                </div>
+                <p id="profile-details" class="recording-note">
+                  Preferences, native languages, and your learning language appear here once you sign in.
+                </p>
+                <div id="network-list" class="network-list"></div>
+              </div>
+
               <div class="recording-card">
                 <div>
                   <p class="eyebrow">Direct voice capture</p>
-                  <h3>Record your voice on the site</h3>
+                  <h3>Record your voice for page-by-page narration</h3>
                 </div>
                 <p class="recording-note">
                   A clear 10-20 second recording works best for cloning. Quiet room, one speaker, and read the suggested line for the strongest accent match.
@@ -134,7 +166,7 @@
                 <audio id="voice-preview" controls hidden></audio>
               </div>
 
-              <button id="generate-button" class="primary-button glow-button" type="button">Create the audiobook</button>
+              <button id="generate-button" class="primary-button glow-button" type="button">Start narrated reading</button>
 
               <div id="generation-status" class="generation-status hidden">
                 <div class="status-row">
@@ -152,15 +184,32 @@
 
         <section class="reader-shell">
           <aside class="panel library-panel">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Book architecture</p>
-                <h3>Chapters</h3>
-              </div>
-              <span class="soft-pill" id="chapter-count">0 sections</span>
-            </div>
-            <div id="chapter-list" class="chapter-list empty-state">
-              Open a story to see the reading structure.
+            <div class="library-stack">
+              <section class="library-shelf-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Saved library</p>
+                    <h3>Your books</h3>
+                  </div>
+                  <span class="soft-pill" id="library-count">0 books</span>
+                </div>
+                <div id="book-library" class="book-library empty-state">
+                  Save a PDF, EPUB, or text file to start your library.
+                </div>
+              </section>
+
+              <section class="library-shelf-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Reading flow</p>
+                    <h3>Pages</h3>
+                  </div>
+                  <span class="soft-pill" id="chapter-count">0 pages</span>
+                </div>
+                <div id="chapter-list" class="chapter-list empty-state">
+                  Open a saved book to see its pages.
+                </div>
+              </section>
             </div>
           </aside>
 
@@ -168,7 +217,7 @@
             <div class="reader-toolbar">
               <div>
                 <p class="eyebrow">Reading room</p>
-                <h2 id="reader-title">Your audiobook will appear here</h2>
+                <h2 id="reader-title">Your saved reading session will appear here</h2>
               </div>
 
               <div class="player-cluster">

@@ -3,6 +3,7 @@ import express from "express";
 import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { promises as fsp } from "node:fs";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
@@ -17,7 +18,7 @@ const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
 const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.52);
 const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.94);
-const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
+const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.28);
 const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
 
 const rootDir = __dirname;
@@ -26,10 +27,13 @@ const dataDir = path.join(rootDir, "data");
 const uploadsDir = path.join(dataDir, "uploads");
 const voicesDir = path.join(dataDir, "voices");
 const audioDir = path.join(dataDir, "audio");
+const libraryDir = path.join(dataDir, "library");
 const tmpDir = path.join(rootDir, "tmp");
 const jobsDir = path.join(dataDir, "jobs");
+const preferencesPath = path.join(dataDir, "preferences.json");
+const appName = "Voxenor";
 
-for (const dir of [dataDir, uploadsDir, voicesDir, audioDir, tmpDir, jobsDir]) {
+for (const dir of [dataDir, uploadsDir, voicesDir, audioDir, libraryDir, tmpDir, jobsDir]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -42,11 +46,18 @@ const upload = multer({
 
 const jobs = new Map();
 const voiceRegistry = new Map();
+const bookPageTasks = new Map();
 let chatterboxWorker = null;
 let chatterboxWorkerStdoutRemainder = "";
 let chatterboxWorkerStderrRemainder = "";
 let chatterboxWorkerActiveJob = null;
 let chatterboxWorkerQueue = Promise.resolve();
+const appAccountEmail = (process.env.APP_ACCOUNT_EMAIL || "eleonorashatkovska@gmail.com").trim().toLowerCase();
+const appAccountPassword = process.env.APP_ACCOUNT_PASSWORD || "1234";
+const appAccountName = (process.env.APP_ACCOUNT_NAME || "Eleonora Shatkovska").trim();
+const appSessionSecret = process.env.APP_SESSION_SECRET || `${appAccountEmail}:${appAccountPassword}:voxenor`;
+const sessionCookieName = "voxenor_session";
+const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
 
 const sourceLanguageCatalog = [
   { code: "auto", label: "Auto Detect" },
@@ -61,6 +72,7 @@ const sourceLanguageCatalog = [
   { code: "sv", label: "Swedish" },
   { code: "pl", label: "Polish" },
   { code: "ru", label: "Russian" },
+  { code: "uk", label: "Ukrainian" },
   { code: "tr", label: "Turkish" },
   { code: "zh", label: "Chinese" },
   { code: "ja", label: "Japanese" },
@@ -176,21 +188,72 @@ const portuguesePortugalPossessiveNouns = [
   "vozes",
 ];
 
+const accountProfile = {
+  email: appAccountEmail,
+  name: appAccountName,
+  nativeLanguages: [
+    normalizeLanguageCode(process.env.APP_ACCOUNT_NATIVE_LANGUAGE_PRIMARY || "ru"),
+    normalizeLanguageCode(process.env.APP_ACCOUNT_NATIVE_LANGUAGE_SECONDARY || "uk"),
+  ].filter(Boolean),
+  fluentLanguages: [normalizeLanguageCode(process.env.APP_ACCOUNT_FLUENT_LANGUAGE || "en")].filter(Boolean),
+  learningLanguage: normalizeLanguageCode(process.env.APP_ACCOUNT_LEARNING_LANGUAGE || "pt-pt"),
+};
+let userPreferences = loadUserPreferences();
+
 loadVoiceRegistry();
 
 app.use(express.json({ limit: "8mb" }));
 app.use(express.static(publicDir));
-app.use("/audio", express.static(audioDir));
-app.use("/voices", express.static(voicesDir));
+app.use("/audio", requireSession, express.static(audioDir));
+app.use("/voices", requireSession, express.static(voicesDir));
+app.use("/library-assets", requireSession, express.static(libraryDir));
 
-app.get("/api/meta", (_req, res) => {
+app.get("/api/session", (req, res) => {
+  const session = getSessionFromRequest(req);
+  return res.json({
+    ok: true,
+    authenticated: Boolean(session),
+    profile: session ? getPublicProfile() : null,
+  });
+});
+
+app.post("/api/session/login", (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+
+  if (email !== appAccountEmail || password !== appAccountPassword) {
+    return res.status(401).json({
+      ok: false,
+      error: "Invalid email or password.",
+    });
+  }
+
+  const token = createSessionToken(appAccountEmail);
+  setSessionCookie(res, token);
+  return res.json({
+    ok: true,
+    authenticated: true,
+    profile: getPublicProfile(),
+  });
+});
+
+app.post("/api/session/logout", (_req, res) => {
+  clearSessionCookie(res);
+  return res.json({ ok: true });
+});
+
+app.get("/api/meta", requireSession, (_req, res) => {
   res.json({
     ok: true,
+    appName,
     sourceLanguages: sourceLanguageCatalog,
     listenerLanguages: listenerLanguageCatalog,
     audiobookLanguages: audiobookLanguageCatalog,
     fullySupportedLanguages: audiobookLanguageCatalog,
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
+    profile: getPublicProfile(),
+    preferences: userPreferences,
+    localAccessUrls: getLocalAccessUrls(port),
     defaults: {
       exaggeration: defaultExaggeration,
       narrationSpeed: defaultNarrationSpeed,
@@ -203,7 +266,7 @@ app.get("/api/meta", (_req, res) => {
   });
 });
 
-app.post("/api/book/extract", upload.single("bookFile"), async (req, res) => {
+app.post("/api/book/extract", requireSession, upload.single("bookFile"), async (req, res) => {
   try {
     const manualText = req.body.text?.trim();
     const title = (req.body.title || "Untitled Story").trim();
@@ -262,6 +325,9 @@ app.post("/api/book/extract", upload.single("bookFile"), async (req, res) => {
       ocrUsed: Boolean(extraction.ocrUsed),
     });
   } catch (error) {
+    if (req.file?.path) {
+      await fsp.rm(req.file.path, { force: true }).catch(() => {});
+    }
     return res.status(500).json({
       ok: false,
       error: error.message,
@@ -269,7 +335,166 @@ app.post("/api/book/extract", upload.single("bookFile"), async (req, res) => {
   }
 });
 
-app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => {
+app.post("/api/preferences", requireSession, async (req, res) => {
+  try {
+    const updates = {
+      listenerLanguage: normalizeLanguageCode(req.body?.listenerLanguage || userPreferences.listenerLanguage || "en"),
+      audiobookLanguage: normalizeLanguageCode(req.body?.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt"),
+      sourceLanguage: normalizeLanguageCode(req.body?.sourceLanguage || userPreferences.sourceLanguage || "auto"),
+      selectedVoiceId: String(req.body?.selectedVoiceId || userPreferences.selectedVoiceId || "storybook"),
+    };
+
+    userPreferences = {
+      ...userPreferences,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    await persistUserPreferences();
+
+    return res.json({
+      ok: true,
+      preferences: userPreferences,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/books", requireSession, async (_req, res) => {
+  try {
+    const books = await listLibraryBooks();
+    return res.json({
+      ok: true,
+      books: books.map(toPublicBookSummary),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/books/import", requireSession, upload.single("bookFile"), async (req, res) => {
+  try {
+    const book = await createLibraryBookFromRequest(req);
+    return res.json({
+      ok: true,
+      book: toPublicBook(book),
+      page: toPublicBookPage(book, book.progress?.pageIndex || 0),
+    });
+  } catch (error) {
+    if (req.file?.path) {
+      await fsp.rm(req.file.path, { force: true }).catch(() => {});
+    }
+    return res.status(400).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/books/:bookId", requireSession, async (req, res) => {
+  try {
+    const book = await readLibraryBook(req.params.bookId);
+    if (!book) {
+      return res.status(404).json({
+        ok: false,
+        error: "That book was not found.",
+      });
+    }
+
+    return res.json({
+      ok: true,
+      book: toPublicBook(book),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, res) => {
+  try {
+    const book = await readLibraryBook(req.params.bookId);
+    if (!book) {
+      return res.status(404).json({
+        ok: false,
+        error: "That book was not found.",
+      });
+    }
+
+    return res.json({
+      ok: true,
+      page: toPublicBookPage(book, Number(req.params.pageIndex)),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/books/:bookId/progress", requireSession, async (req, res) => {
+  try {
+    const book = await readLibraryBook(req.params.bookId);
+    if (!book) {
+      return res.status(404).json({
+        ok: false,
+        error: "That book was not found.",
+      });
+    }
+
+    const pageIndex = clampPageIndex(book, Number(req.body?.pageIndex));
+    const audioTime = Math.max(0, Number(req.body?.audioTime || 0));
+    book.progress = {
+      pageIndex,
+      audioTime,
+      updatedAt: new Date().toISOString(),
+    };
+    book.updatedAt = new Date().toISOString();
+    await persistLibraryBook(book);
+
+    return res.json({
+      ok: true,
+      progress: book.progress,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, async (req, res) => {
+  try {
+    const prepared = await ensureLibraryBookPageReady({
+      bookId: req.params.bookId,
+      pageIndex: Number(req.params.pageIndex),
+      voiceSampleId: String(req.body?.voiceSampleId || "storybook"),
+    });
+
+    return res.json({
+      ok: true,
+      book: toPublicBook(prepared.book),
+      page: toPublicBookPage(prepared.book, prepared.pageIndex),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/voice-sample", requireSession, upload.single("voiceSample"), async (req, res) => {
   let finalPath = "";
   let metadataPath = "";
   let sourcePath = "";
@@ -324,7 +549,7 @@ app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => 
   }
 });
 
-app.delete("/api/voice-sample/:voiceSampleId", async (req, res) => {
+app.delete("/api/voice-sample/:voiceSampleId", requireSession, async (req, res) => {
   try {
     const voiceSampleId = String(req.params.voiceSampleId || "").trim();
     if (!voiceSampleId) {
@@ -363,7 +588,7 @@ app.delete("/api/voice-sample/:voiceSampleId", async (req, res) => {
   }
 });
 
-app.post("/api/audiobook/generate", async (req, res) => {
+app.post("/api/audiobook/generate", requireSession, async (req, res) => {
   const {
     title,
     text,
@@ -445,7 +670,7 @@ app.post("/api/audiobook/generate", async (req, res) => {
   });
 });
 
-app.get("/api/audiobook/status/:jobId", async (req, res) => {
+app.get("/api/audiobook/status/:jobId", requireSession, async (req, res) => {
   const jobId = req.params.jobId;
   const memoryJob = jobs.get(jobId);
   if (memoryJob) {
@@ -464,7 +689,7 @@ app.get("/api/audiobook/status/:jobId", async (req, res) => {
   return res.json({ ok: true, job });
 });
 
-app.post("/api/translate", async (req, res) => {
+app.post("/api/translate", requireSession, async (req, res) => {
   try {
     const text = String(req.body?.text || "").trim();
     const source = String(req.body?.source || "auto").trim();
@@ -500,7 +725,7 @@ app.get(/.*/, (_req, res) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`LinguaTales listening on http://${host}:${port}`);
+  console.log(`Voxenor listening on http://${host}:${port}`);
 });
 
 async function runGenerationJob(config) {
@@ -548,6 +773,10 @@ async function runGenerationJob(config) {
         await persistJob(config.jobId, latestJob);
       },
     });
+
+    if (normalizeLanguageCode(config.language) === "pt-pt") {
+      workingText = normalizePortugueseForPortugal(workingText, config.sourceLanguage);
+    }
 
     readerLanguage = config.language;
   }
@@ -1204,7 +1433,26 @@ async function translateText({ text, source, target }) {
     };
   }
 
-  const provider = process.env.DEFAULT_TRANSLATION_PROVIDER || "mymemory";
+  const provider = process.env.DEFAULT_TRANSLATION_PROVIDER || "google-web";
+  if (provider === "google-web") {
+    const translation = await translateWithGoogleWeb({
+      text,
+      source: normalizedSource,
+      target: normalizedTarget,
+    });
+    if (translationNeedsRetry(translation.translatedText, normalizedSource, normalizedTarget)) {
+      const retriedTranslation = await translateWithGoogleWeb({
+        text,
+        source: normalizedSource,
+        target: normalizedTarget,
+      });
+      if (!translationNeedsRetry(retriedTranslation.translatedText, normalizedSource, normalizedTarget)) {
+        return retriedTranslation;
+      }
+    }
+    return translation;
+  }
+
   if (provider !== "mymemory") {
     throw new Error("Translation provider is not configured.");
   }
@@ -1232,6 +1480,37 @@ async function translateText({ text, source, target }) {
     provider: "mymemory",
     translatedText,
   };
+}
+
+async function translateWithGoogleWeb({ text, source, target }) {
+  const filePath = path.join(tmpDir, `${crypto.randomUUID()}.translate.txt`);
+  await fsp.writeFile(filePath, text, "utf8");
+  try {
+    return await runPythonJson("scripts/translate_text.py", [filePath, source, target]);
+  } finally {
+    await fsp.rm(filePath, { force: true });
+  }
+}
+
+function translationNeedsRetry(translatedText, source, target) {
+  if (!translatedText?.trim()) {
+    return true;
+  }
+
+  if (target !== "pt") {
+    return false;
+  }
+
+  const englishLeakPattern =
+    /\b(?:hello|this|that|with|saved|page|library|check|first|second|boy|lived|street|number)\b/iu;
+  const portugueseSignalPattern =
+    /\b(?:o|a|os|as|um|uma|para|com|não|esta|está|primeira|página|biblioteca|olá|número|senhor)\b/iu;
+
+  if ((source === "ru" || source === "uk" || source === "en") && englishLeakPattern.test(translatedText)) {
+    return !portugueseSignalPattern.test(translatedText) || englishLeakPattern.test(translatedText.split(/[.!?]/)[0] || "");
+  }
+
+  return false;
 }
 
 async function translateLongText({ text, source, target, onProgress }) {
@@ -1265,7 +1544,7 @@ async function translateLongText({ text, source, target, onProgress }) {
   return normalizeText(translatedChunks.join("\n\n"));
 }
 
-function chunkTextForTranslation(text, maxChunkLength = 420) {
+function chunkTextForTranslation(text, maxChunkLength = 1200) {
   const paragraphs = normalizeText(text)
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -1405,6 +1684,629 @@ function applySourceCasing(source, replacement) {
     return replacement.slice(0, 1).toUpperCase() + replacement.slice(1);
   }
   return replacement;
+}
+
+function getPublicProfile() {
+  return {
+    email: accountProfile.email,
+    name: accountProfile.name,
+    nativeLanguages: accountProfile.nativeLanguages,
+    fluentLanguages: accountProfile.fluentLanguages,
+    learningLanguage: accountProfile.learningLanguage,
+  };
+}
+
+function loadUserPreferences() {
+  const fallback = {
+    sourceLanguage: "auto",
+    listenerLanguage: normalizeLanguageCode(process.env.APP_ACCOUNT_INTERFACE_LANGUAGE || "en"),
+    audiobookLanguage: accountProfile.learningLanguage || "pt-pt",
+    selectedVoiceId: "storybook",
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    if (!fs.existsSync(preferencesPath)) {
+      return fallback;
+    }
+    const parsed = JSON.parse(fs.readFileSync(preferencesPath, "utf8"));
+    return {
+      ...fallback,
+      ...parsed,
+      sourceLanguage: normalizeLanguageCode(parsed.sourceLanguage || fallback.sourceLanguage),
+      listenerLanguage: normalizeLanguageCode(parsed.listenerLanguage || fallback.listenerLanguage),
+      audiobookLanguage: normalizeLanguageCode(parsed.audiobookLanguage || fallback.audiobookLanguage),
+      selectedVoiceId: String(parsed.selectedVoiceId || fallback.selectedVoiceId),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+async function persistUserPreferences() {
+  await fsp.writeFile(preferencesPath, JSON.stringify(userPreferences, null, 2), "utf8");
+}
+
+function parseCookies(cookieHeader = "") {
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, pair) => {
+      const separatorIndex = pair.indexOf("=");
+      if (separatorIndex <= 0) {
+        return cookies;
+      }
+      const key = pair.slice(0, separatorIndex).trim();
+      const value = decodeURIComponent(pair.slice(separatorIndex + 1));
+      cookies[key] = value;
+      return cookies;
+    }, {});
+}
+
+function createSessionToken(email) {
+  const expiresAt = Date.now() + sessionDurationMs;
+  const payload = `${email}|${expiresAt}`;
+  const signature = crypto.createHmac("sha256", appSessionSecret).update(payload).digest("hex");
+  return `${payload}|${signature}`;
+}
+
+function getSessionFromRequest(req) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const token = cookies[sessionCookieName];
+  if (!token) {
+    return null;
+  }
+
+  const [email, expiresAtRaw, signature] = token.split("|");
+  const payload = `${email}|${expiresAtRaw}`;
+  const expectedSignature = crypto.createHmac("sha256", appSessionSecret).update(payload).digest("hex");
+  const expiresAt = Number(expiresAtRaw);
+  if (
+    !email ||
+    email !== appAccountEmail ||
+    !signature ||
+    signature !== expectedSignature ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt < Date.now()
+  ) {
+    return null;
+  }
+
+  return {
+    email,
+    expiresAt,
+  };
+}
+
+function setSessionCookie(res, token) {
+  const maxAge = Math.floor(sessionDurationMs / 1000);
+  res.setHeader(
+    "Set-Cookie",
+    `${sessionCookieName}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`
+  );
+}
+
+function clearSessionCookie(res) {
+  res.setHeader(
+    "Set-Cookie",
+    `${sessionCookieName}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
+  );
+}
+
+function requireSession(req, res, next) {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      ok: false,
+      error: "Please sign in to Voxenor first.",
+    });
+  }
+
+  req.session = session;
+  return next();
+}
+
+function getLocalAccessUrls(activePort) {
+  const interfaces = os.networkInterfaces();
+  const urls = [];
+  for (const records of Object.values(interfaces)) {
+    for (const record of records || []) {
+      if ((record.family !== "IPv4" && record.family !== 4) || record.internal) {
+        continue;
+      }
+      urls.push(`http://${record.address}:${activePort}`);
+    }
+  }
+  return [...new Set(urls)];
+}
+
+function getLibraryBookDir(bookId) {
+  return path.join(libraryDir, bookId);
+}
+
+function getLibraryBookMetadataPath(bookId) {
+  return path.join(getLibraryBookDir(bookId), "book.json");
+}
+
+async function listLibraryBooks() {
+  if (!fs.existsSync(libraryDir)) {
+    return [];
+  }
+
+  const entries = await fsp.readdir(libraryDir, { withFileTypes: true });
+  const books = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const book = await readLibraryBook(entry.name);
+    if (book) {
+      books.push(book);
+    }
+  }
+
+  return books.sort((left, right) => {
+    const leftTime = Date.parse(left.updatedAt || left.createdAt || 0) || 0;
+    const rightTime = Date.parse(right.updatedAt || right.createdAt || 0) || 0;
+    return rightTime - leftTime;
+  });
+}
+
+async function readLibraryBook(bookId) {
+  try {
+    const metadataPath = getLibraryBookMetadataPath(bookId);
+    if (!fs.existsSync(metadataPath)) {
+      return null;
+    }
+    return JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function persistLibraryBook(book) {
+  const bookDir = getLibraryBookDir(book.id);
+  await fsp.mkdir(bookDir, { recursive: true });
+  book.updatedAt = new Date().toISOString();
+  await fsp.writeFile(getLibraryBookMetadataPath(book.id), JSON.stringify(book, null, 2), "utf8");
+}
+
+async function persistLibraryDerivedTexts(book) {
+  const bookDir = getLibraryBookDir(book.id);
+  await fsp.mkdir(bookDir, { recursive: true });
+  const originalText = normalizeText(book.pages.map((page) => page.originalText).join("\n\n"));
+  await fsp.writeFile(path.join(bookDir, "original.txt"), originalText, "utf8");
+
+  const translatedPages = book.pages.some((page) => page.translatedText?.trim());
+  if (!translatedPages) {
+    return;
+  }
+
+  const translatedText = normalizeText(book.pages.map((page) => page.translatedText || page.originalText).join("\n\n"));
+  await fsp.writeFile(path.join(bookDir, `translated.${book.audiobookLanguage}.txt`), translatedText, "utf8");
+}
+
+function paginateBookText(text, pageWordLimit = 190, pageCharLimit = 1150) {
+  const blocks = normalizeText(text)
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  const pages = [];
+  let currentParts = [];
+  let currentWordCount = 0;
+  let currentCharCount = 0;
+
+  const flushPage = () => {
+    if (!currentParts.length) {
+      return;
+    }
+    const content = normalizeText(currentParts.join("\n\n"));
+    if (content) {
+      pages.push(content);
+    }
+    currentParts = [];
+    currentWordCount = 0;
+    currentCharCount = 0;
+  };
+
+  const appendChunk = (chunk) => {
+    const normalizedChunk = normalizeText(chunk);
+    if (!normalizedChunk) {
+      return;
+    }
+
+    const chunkWordCount = countWords(normalizedChunk);
+    const chunkCharCount = normalizedChunk.length;
+    if (
+      currentParts.length &&
+      (currentWordCount + chunkWordCount > pageWordLimit || currentCharCount + chunkCharCount > pageCharLimit)
+    ) {
+      flushPage();
+    }
+
+    currentParts.push(normalizedChunk);
+    currentWordCount += chunkWordCount;
+    currentCharCount += chunkCharCount;
+  };
+
+  for (const block of blocks) {
+    if (countWords(block) <= pageWordLimit && block.length <= pageCharLimit) {
+      appendChunk(block);
+      continue;
+    }
+
+    const sentences = block.match(/[^.!?…]+[.!?…]?/g) || [block];
+    let sentenceChunk = "";
+    for (const sentence of sentences) {
+      const candidate = sentenceChunk ? `${sentenceChunk} ${sentence.trim()}` : sentence.trim();
+      if (countWords(candidate) <= pageWordLimit && candidate.length <= pageCharLimit) {
+        sentenceChunk = candidate;
+      } else {
+        if (sentenceChunk) {
+          appendChunk(sentenceChunk);
+        }
+        sentenceChunk = sentence.trim();
+      }
+    }
+    if (sentenceChunk) {
+      appendChunk(sentenceChunk);
+    }
+  }
+
+  flushPage();
+  return pages.length ? pages : [normalizeText(text)];
+}
+
+function countWords(text) {
+  return (text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || []).length;
+}
+
+function toPublicBookSummary(book) {
+  return {
+    id: book.id,
+    title: book.title,
+    coverUrl: book.coverUrl || "",
+    sourceType: book.sourceType,
+    detectedLanguage: book.detectedLanguage,
+    audiobookLanguage: book.audiobookLanguage,
+    totalPages: book.pages.length,
+    createdAt: book.createdAt,
+    updatedAt: book.updatedAt,
+    progress: book.progress || { pageIndex: 0, audioTime: 0 },
+  };
+}
+
+function toPublicBook(book) {
+  return {
+    ...toPublicBookSummary(book),
+    originalFileName: book.originalFileName || "",
+    listenerLanguage: book.listenerLanguage,
+    voiceSampleId: book.voiceSampleId || "storybook",
+    pages: book.pages.map((page, index) => ({
+      index,
+      title: page.title || `Page ${index + 1}`,
+      preview: truncateText(page.translatedText || page.originalText, 130),
+      translationStatus: page.translationStatus || "idle",
+      audioStatus: page.audioStatus || "idle",
+      ready: Boolean(page.audioUrl),
+    })),
+  };
+}
+
+function toPublicBookPage(book, pageIndex) {
+  const safePageIndex = clampPageIndex(book, pageIndex);
+  const page = book.pages[safePageIndex];
+  return {
+    index: safePageIndex,
+    title: page.title || `Page ${safePageIndex + 1}`,
+    sourceText: page.originalText,
+    translatedText: page.translatedText || "",
+    displayText: page.translatedText || page.originalText,
+    translationStatus: page.translationStatus || "idle",
+    audioStatus: page.audioStatus || "idle",
+    audioUrl: page.audioUrl || "",
+    alignment: page.alignment || null,
+    logs: page.logs || [],
+    voiceSampleId: book.voiceSampleId || "storybook",
+  };
+}
+
+async function createLibraryBookFromRequest(req) {
+  const manualText = String(req.body?.text || "").trim();
+  const requestedTitle = (req.body?.title || "Untitled Book").trim();
+  const sourceLanguageHint = normalizeLanguageCode(req.body?.sourceLanguage || userPreferences.sourceLanguage || "auto");
+  const listenerLanguage = normalizeLanguageCode(req.body?.listenerLanguage || userPreferences.listenerLanguage || "en");
+  const audiobookLanguage = normalizeLanguageCode(req.body?.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt");
+  const extraction = await extractBookPayload({
+    manualText,
+    title: requestedTitle,
+    sourceLanguageHint,
+    file: req.file,
+  });
+
+  const bookId = crypto.randomUUID();
+  const bookDir = getLibraryBookDir(bookId);
+  await fsp.mkdir(bookDir, { recursive: true });
+
+  let originalFileName = "";
+  let sourceType = extraction.source || "manual";
+  if (req.file) {
+    const ext = path.extname(req.file.originalname) || ".bin";
+    originalFileName = req.file.originalname;
+    const sourcePath = path.join(bookDir, `source${ext}`);
+    await fsp.rename(req.file.path, sourcePath);
+    const coverPath = path.join(bookDir, "cover.jpg");
+    await maybeCreateBookCover(sourcePath, req.file.originalname, coverPath);
+  }
+
+  const coverUrl = fs.existsSync(path.join(bookDir, "cover.jpg")) ? `/library-assets/${bookId}/cover.jpg` : "";
+  const pages = paginateBookText(extraction.text).map((pageText, index) => ({
+    title: `Page ${index + 1}`,
+    originalText: pageText,
+    translatedText: "",
+    translationStatus: "idle",
+    audioStatus: "idle",
+    audioUrl: "",
+    alignment: null,
+    logs: [],
+  }));
+
+  const book = {
+    id: bookId,
+    title: extraction.title || requestedTitle || "Untitled Book",
+    sourceType,
+    originalFileName,
+    sourceLanguageHint,
+    detectedLanguage: normalizeLanguageCode(extraction.detectedLanguage || sourceLanguageHint || "auto"),
+    listenerLanguage,
+    audiobookLanguage,
+    voiceSampleId: userPreferences.selectedVoiceId || "storybook",
+    coverUrl,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    progress: {
+      pageIndex: 0,
+      audioTime: 0,
+      updatedAt: new Date().toISOString(),
+    },
+    pages,
+  };
+
+  await persistLibraryBook(book);
+  await persistLibraryDerivedTexts(book);
+  return book;
+}
+
+async function extractBookPayload({ manualText, title, sourceLanguageHint, file }) {
+  if (manualText) {
+    const manualFilePath = path.join(tmpDir, `${crypto.randomUUID()}.txt`);
+    await fsp.writeFile(manualFilePath, normalizeText(manualText), "utf8");
+    try {
+      const extraction = await runPythonJson("scripts/extract_book.py", [
+        manualFilePath,
+        `${title || "manual-book"}.txt`,
+        sourceLanguageHint,
+      ]);
+      return {
+        ...extraction,
+        source: "manual",
+      };
+    } finally {
+      await fsp.rm(manualFilePath, { force: true });
+    }
+  }
+
+  if (!file) {
+    throw new Error("Please paste text or upload a PDF, EPUB, TXT, or book photo.");
+  }
+
+  return runPythonJson("scripts/extract_book.py", [file.path, file.originalname, sourceLanguageHint]);
+}
+
+async function maybeCreateBookCover(sourcePath, originalName, outputPath) {
+  try {
+    await runCommand(pythonBin, [path.join(rootDir, "scripts/extract_cover.py"), sourcePath, originalName, outputPath]);
+  } catch {
+    // Cover extraction is a best-effort enhancement for the library.
+  }
+}
+
+function clampPageIndex(book, pageIndex) {
+  if (!book?.pages?.length) {
+    return 0;
+  }
+  if (!Number.isFinite(pageIndex)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(book.pages.length - 1, Math.floor(pageIndex)));
+}
+
+function resolveBookVoiceKey(voiceSampleId) {
+  return voiceSampleId && !builtInVoiceSamples.some((sample) => sample.id === voiceSampleId)
+    ? voiceSampleId
+    : "storybook";
+}
+
+function sanitizeVoiceKey(voiceKey) {
+  return String(voiceKey || "storybook").replace(/[^a-z0-9_-]+/gi, "-");
+}
+
+function pageHasReadyAudio(page, voiceKey) {
+  return page?.audioStatus === "ready" && page?.audioVoiceId === voiceKey && Boolean(page?.audioUrl);
+}
+
+function appendPageLog(page, message) {
+  page.logs = [...(page.logs || []), message].slice(-8);
+}
+
+async function clearBookAudioCache(book) {
+  const audioCacheDir = path.join(getLibraryBookDir(book.id), "audio");
+  await fsp.rm(audioCacheDir, { recursive: true, force: true });
+  for (const page of book.pages) {
+    page.audioStatus = "idle";
+    page.audioUrl = "";
+    page.audioVoiceId = "";
+    page.alignment = null;
+    page.logs = [];
+  }
+}
+
+async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, prefetch = false }) {
+  const voiceKey = resolveBookVoiceKey(voiceSampleId);
+  const taskKey = `${bookId}:${pageIndex}:${voiceKey}`;
+  if (bookPageTasks.has(taskKey)) {
+    return bookPageTasks.get(taskKey);
+  }
+
+  const task = (async () => {
+    let book = await readLibraryBook(bookId);
+    if (!book) {
+      throw new Error("That book was not found.");
+    }
+
+    const safePageIndex = clampPageIndex(book, pageIndex);
+    const page = book.pages[safePageIndex];
+    if (!page) {
+      throw new Error("That page was not found.");
+    }
+
+    if (book.voiceSampleId !== voiceKey) {
+      book.voiceSampleId = voiceKey;
+      await clearBookAudioCache(book);
+      await persistLibraryBook(book);
+    }
+
+    if (!prefetch) {
+      book.progress = {
+        pageIndex: safePageIndex,
+        audioTime: 0,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    if (!page.translatedText?.trim()) {
+      if (
+        book.detectedLanguage &&
+        book.detectedLanguage !== "auto" &&
+        normalizeTranslationProviderLanguage(book.detectedLanguage) !==
+          normalizeTranslationProviderLanguage(book.audiobookLanguage)
+      ) {
+        page.translationStatus = "running";
+        appendPageLog(page, `Translating page ${safePageIndex + 1} into ${book.audiobookLanguage.toUpperCase()}.`);
+        await persistLibraryBook(book);
+
+        const translatedText = await translateLongText({
+          text: page.originalText,
+          source: book.detectedLanguage,
+          target: book.audiobookLanguage,
+        });
+
+        page.translatedText =
+          normalizeLanguageCode(book.audiobookLanguage) === "pt-pt"
+            ? normalizePortugueseForPortugal(translatedText, book.detectedLanguage)
+            : translatedText;
+        page.translationStatus = "ready";
+        appendPageLog(page, "Translation saved for this page.");
+        await persistLibraryBook(book);
+        await persistLibraryDerivedTexts(book);
+      } else {
+        page.translatedText = page.originalText;
+        page.translationStatus = "ready";
+      }
+    }
+
+    if (!pageHasReadyAudio(page, voiceKey)) {
+      page.audioStatus = "running";
+      appendPageLog(page, "Generating the audiobook page.");
+      await persistLibraryBook(book);
+
+      const bookDir = getLibraryBookDir(book.id);
+      const pagesDir = path.join(bookDir, "pages");
+      const audioCacheDir = path.join(bookDir, "audio");
+      await fsp.mkdir(pagesDir, { recursive: true });
+      await fsp.mkdir(audioCacheDir, { recursive: true });
+
+      const pagePrefix = `page-${String(safePageIndex + 1).padStart(4, "0")}-${sanitizeVoiceKey(voiceKey)}`;
+      const inputTextPath = path.join(pagesDir, `${pagePrefix}.txt`);
+      const outputWavPath = path.join(audioCacheDir, `${pagePrefix}.wav`);
+      const metadataPath = path.join(audioCacheDir, `${pagePrefix}.json`);
+      await fsp.writeFile(inputTextPath, normalizeText(page.translatedText || page.originalText), "utf8");
+
+      const resolvedVoiceSample = resolveVoiceSample(voiceKey)
+        ? await ensureVoiceSamplePrompt(resolveVoiceSample(voiceKey))
+        : null;
+      if (voiceKey !== "storybook" && !resolvedVoiceSample) {
+        throw new Error("The selected custom voice is no longer available. Upload it again and retry.");
+      }
+
+      await runChatterboxGeneration(
+        {
+          inputTextPath,
+          outputWavPath,
+          metadataPath,
+          language: book.audiobookLanguage,
+          voiceSamplePath: resolvedVoiceSample?.path || "",
+          exaggeration: defaultExaggeration,
+          narrationSpeed: defaultNarrationSpeed,
+          cfgWeight: defaultCfgWeight,
+        },
+        {
+          onLine: async (line) => {
+            book = (await readLibraryBook(book.id)) || book;
+            const livePage = book.pages[safePageIndex];
+            if (!livePage) {
+              return;
+            }
+            if (line.startsWith("PROGRESS:")) {
+              const [, rawMessage = ""] = line.split("|");
+              if (rawMessage) {
+                appendPageLog(livePage, rawMessage);
+                await persistLibraryBook(book);
+              }
+            }
+          },
+        }
+      );
+
+      book = (await readLibraryBook(book.id)) || book;
+      const completedPage = book.pages[safePageIndex];
+      completedPage.audioStatus = "ready";
+      completedPage.audioVoiceId = voiceKey;
+      completedPage.audioUrl = `/library-assets/${book.id}/audio/${path.basename(outputWavPath)}`;
+      if (fs.existsSync(metadataPath)) {
+        completedPage.alignment = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+      }
+      appendPageLog(completedPage, "Audiobook page ready.");
+      await persistLibraryBook(book);
+    }
+
+    if (!prefetch && safePageIndex + 1 < book.pages.length) {
+      void ensureLibraryBookPageReady({
+        bookId,
+        pageIndex: safePageIndex + 1,
+        voiceSampleId: voiceKey,
+        prefetch: true,
+      }).catch(() => {});
+    }
+
+    return {
+      book,
+      pageIndex: safePageIndex,
+    };
+  })();
+
+  bookPageTasks.set(taskKey, task);
+  try {
+    return await task;
+  } finally {
+    bookPageTasks.delete(taskKey);
+  }
+}
+
+function truncateText(value, maxLength) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
 
 function loadVoiceRegistry() {

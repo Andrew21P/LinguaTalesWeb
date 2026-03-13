@@ -1,6 +1,6 @@
-# LinguaTales
+# Voxenor
 
-LinguaTales is a local-first audiobook web app: paste text or upload a `PDF`, `EPUB`, `TXT`, or book-page photo, record a voice sample in the browser, generate an audiobook with Chatterbox, and read along in a rich reader with inline translation.
+Voxenor is a local-first audiobook library: import a `PDF`, `EPUB`, `TXT`, or book-page photo, save it into a private local shelf, record a voice sample in the browser, translate page by page into PT-PT, and read along with saved progress and inline translation.
 
 ## Stack
 
@@ -14,9 +14,11 @@ LinguaTales is a local-first audiobook web app: paste text or upload a `PDF`, `E
 - Emerald reader experience optimized for desktop and mobile
 - Text paste, `PDF`, `EPUB`, `TXT`, and image ingestion
 - OCR for scanned pages and book photos with free local tooling
+- Password-gated local session with cached sign-in
+- Saved library with progress, per-page text, and resumable audio
 - In-browser voice recording and audio sample upload
 - Named custom voice samples with in-app delete controls
-- PT-PT-first audiobook generation pipeline with source-language detection, optional translation, and warm-model reuse for faster repeat generations
+- PT-PT-first audiobook generation pipeline with source-language detection, stronger free translation, and warm-model reuse for faster repeat generations
 - Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation
 - Audio mastering after synthesis for a cleaner, crisper final export
@@ -58,7 +60,7 @@ Notes:
 - `ffmpeg` must be available on your `PATH`.
 - `tesseract` should be available on your `PATH` if you want OCR from photos or scanned pages.
 - Browser-recorded voice prompts are normalized to mono `wav` automatically before cloning so Chatterbox gets a stable prompt format.
-- If cleanup trims a recording too aggressively, LinguaTales retries a safer prompt-normalization path and rejects truly unusable samples before generation.
+- If cleanup trims a recording too aggressively, Voxenor retries a safer prompt-normalization path and rejects truly unusable samples before generation.
 
 Optional Chatterbox install:
 
@@ -82,10 +84,12 @@ Optional variables:
 
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
-- `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
+- `DEFAULT_TRANSLATION_PROVIDER=google-web` to use the stronger free web translator path by default
 - `DEFAULT_EXAGGERATION=0.52` if you want to tune the fixed narration expressiveness default
 - `DEFAULT_NARRATION_SPEED=0.94` if you want to tune the default rendered narration tempo
+- `DEFAULT_CFG_WEIGHT=0.28` if you want a slightly calmer multilingual Chatterbox guidance setting
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
+- `APP_ACCOUNT_*` values if you want to change the temporary local account and profile preferences
 
 ### 4. Run the app
 
@@ -110,14 +114,14 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 ## Language support
 
 - Fully supported narration target right now: `Portuguese (Portugal)`.
-- Books can still come from other languages, including `Russian`. The app can detect the source language and translate into Portuguese when needed.
+- Books can still come from other languages, including `Russian` and `Ukrainian`. The app can detect the source language and translate into Portuguese when needed.
 - The listener language is separate from the audiobook language so inline translations can stay personalized.
 
 ## Notes about translation
 
 - Small phrase translation is wired to free services by default.
-- Whole-book translation is also supported, but quality and reliability are best when you self-host LibreTranslate.
-- The public MyMemory fallback is convenient for testing, but it is not ideal for long books or literary translation.
+- Saved-book page translation now prefers the stronger free Google web path and normalizes results toward PT-PT wording.
+- Self-hosted LibreTranslate still takes priority if you configure it.
 
 ## Notes about OCR
 
@@ -128,4 +132,4 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 
 This project uses the official Python package interface from Resemble AI's Chatterbox repository. The generation script targets `ChatterboxMultilingualTTS`, which supports Portuguese as `pt`, and falls back to a macOS demo voice only when the host machine cannot install the official Chatterbox runtime.
 
-LinguaTales keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses a warm local Chatterbox worker to avoid repeated model loads, and runs a brighter mastering chain after synthesis for a cleaner final export.
+Voxenor keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses a warm local Chatterbox worker to avoid repeated model loads, and runs a brighter mastering chain after synthesis for a cleaner final export.
