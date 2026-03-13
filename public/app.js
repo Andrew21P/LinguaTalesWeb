@@ -64,6 +64,7 @@ const els = {
   recordToggle: document.querySelector("#record-toggle"),
   uploadVoiceButton: document.querySelector("#upload-voice-button"),
   voiceFile: document.querySelector("#voice-file"),
+  voiceLabel: document.querySelector("#voice-label"),
   voicePreview: document.querySelector("#voice-preview"),
   voiceScriptText: document.querySelector("#voice-script-text"),
   recordingStatus: document.querySelector("#recording-status"),
@@ -213,12 +214,20 @@ function renderSupportedLanguages(languages) {
 function renderVoiceShelf() {
   els.voiceShelf.innerHTML = "";
 
-  state.voiceSamples.forEach((sample, index) => {
+  if (state.selectedVoice && !state.voiceSamples.some((sample) => sample.id === state.selectedVoice.id)) {
+    state.selectedVoice = null;
+  }
+  if (!state.selectedVoice) {
+    state.selectedVoice = state.voiceSamples[0] || null;
+  }
+
+  state.voiceSamples.forEach((sample) => {
+    const shell = document.createElement("div");
+    shell.className = "voice-card-shell";
+
     const button = document.createElement("button");
     button.type = "button";
-    const isActive = state.selectedVoice
-      ? state.selectedVoice.id === sample.id
-      : index === 0;
+    const isActive = state.selectedVoice?.id === sample.id;
     button.className = `voice-card${isActive ? " active" : ""}`;
     button.dataset.voiceId = sample.id;
     button.innerHTML = `
@@ -228,17 +237,31 @@ function renderVoiceShelf() {
     `;
     button.addEventListener("click", () => {
       state.selectedVoice = sample;
-      document.querySelectorAll(".voice-card").forEach((card) => card.classList.remove("active"));
-      button.classList.add("active");
-      updateVoicePill();
+      renderVoiceShelf();
     });
-    els.voiceShelf.append(button);
+
+    shell.append(button);
+
+    if (!sample.builtIn) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "voice-delete-button";
+      deleteButton.dataset.voiceId = sample.id;
+      deleteButton.textContent = "Delete";
+      deleteButton.setAttribute("aria-label", `Delete ${sample.name}`);
+      deleteButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        await handleDeleteVoiceSample(sample.id);
+      });
+      shell.append(deleteButton);
+    }
+
+    els.voiceShelf.append(shell);
   });
 
-  if (!state.selectedVoice) {
-    state.selectedVoice = state.voiceSamples[0] || null;
-  }
   updateVoicePill();
+  refreshVoicePreview();
 }
 
 function renderChapterList() {
@@ -474,13 +497,17 @@ async function handleVoiceUploadFromPicker() {
   if (!file) {
     return;
   }
-  await uploadVoiceFile(file);
+  try {
+    await uploadVoiceFile(file);
+  } finally {
+    els.voiceFile.value = "";
+  }
 }
 
 async function uploadVoiceFile(file) {
   const formData = new FormData();
   formData.append("voiceSample", file);
-  formData.append("name", "My Voice");
+  formData.append("name", getVoiceLabelValue());
   formData.append("language", els.audiobookLanguage.value);
 
   els.recordToggle.textContent = "Record voice";
@@ -501,8 +528,39 @@ async function uploadVoiceFile(file) {
     renderVoiceShelf();
     updateVoicePill();
     els.recordingStatus.textContent = `Custom voice ready: ${payload.voiceSample.name}`;
-    els.voicePreview.hidden = false;
-    els.voicePreview.src = payload.voiceSample.url;
+    els.voiceLabel.value = payload.voiceSample.name;
+  } catch (error) {
+    els.recordingStatus.textContent = error.message;
+  }
+}
+
+async function handleDeleteVoiceSample(voiceSampleId) {
+  const sample = state.voiceSamples.find((candidate) => candidate.id === voiceSampleId);
+  if (!sample || sample.builtIn) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete "${sample.name}" from your saved voices?`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    els.recordingStatus.textContent = `Deleting "${sample.name}"...`;
+    await fetchJson(`/api/voice-sample/${encodeURIComponent(voiceSampleId)}`, {
+      method: "DELETE",
+    });
+
+    state.voiceSamples = state.voiceSamples.filter((candidate) => candidate.id !== voiceSampleId);
+    if (state.selectedVoice?.id === voiceSampleId) {
+      state.selectedVoice = state.voiceSamples[0] || null;
+    }
+    if (state.customVoice?.id === voiceSampleId) {
+      state.customVoice = null;
+    }
+
+    renderVoiceShelf();
+    els.recordingStatus.textContent = `"${sample.name}" deleted.`;
   } catch (error) {
     els.recordingStatus.textContent = error.message;
   }
@@ -807,6 +865,25 @@ function updateLanguagePills() {
 
 function updateVoicePill() {
   els.voicePill.textContent = `Voice: ${state.selectedVoice?.name || "default"}`;
+}
+
+function getVoiceLabelValue() {
+  return els.voiceLabel.value.trim() || "My Voice";
+}
+
+function refreshVoicePreview() {
+  const previewSample = state.selectedVoice && !state.selectedVoice.builtIn ? state.selectedVoice : null;
+  if (!previewSample?.url) {
+    els.voicePreview.pause();
+    els.voicePreview.removeAttribute("src");
+    els.voicePreview.hidden = true;
+    return;
+  }
+
+  els.voicePreview.hidden = false;
+  if (els.voicePreview.src !== new URL(previewSample.url, window.location.origin).href) {
+    els.voicePreview.src = previewSample.url;
+  }
 }
 
 function updateVoicePromptHint() {

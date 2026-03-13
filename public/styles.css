@@ -384,13 +384,19 @@ input[type="range"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.voice-card-shell {
+  position: relative;
+}
+
 .voice-card {
+  width: 100%;
   border: 1px solid rgba(214, 230, 221, 0.92);
   border-radius: var(--radius-md);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(242, 250, 246, 0.68)),
     rgba(255, 255, 255, 0.5);
   padding: 0.9rem;
+  padding-right: 4.1rem;
   text-align: left;
   color: #103223;
   cursor: pointer;
@@ -413,6 +419,28 @@ input[type="range"] {
   color: rgba(32, 92, 67, 0.74);
   line-height: 1.45;
   margin-top: 0.35rem;
+}
+
+.voice-delete-button {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  border: 1px solid rgba(212, 228, 220, 0.92);
+  border-radius: 999px;
+  padding: 0.42rem 0.72rem;
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(18, 62, 43, 0.82);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: 0 12px 24px rgba(16, 49, 35, 0.08);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.voice-delete-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(25, 163, 107, 0.32);
+  background: rgba(245, 252, 248, 0.96);
 }
 
 .support-card {

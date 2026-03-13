@@ -15,6 +15,7 @@ LinguaTales is a local-first audiobook web app: paste text or upload a `PDF`, `E
 - Text paste, `PDF`, `EPUB`, `TXT`, and image ingestion
 - OCR for scanned pages and book photos with free local tooling
 - In-browser voice recording and audio sample upload
+- Named custom voice samples with in-app delete controls
 - PT-PT-first audiobook generation pipeline with source-language detection, optional translation, and warm-model reuse for faster repeat generations
 - Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation

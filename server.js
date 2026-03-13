@@ -323,6 +323,45 @@ app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => 
   }
 });
 
+app.delete("/api/voice-sample/:voiceSampleId", async (req, res) => {
+  try {
+    const voiceSampleId = String(req.params.voiceSampleId || "").trim();
+    if (!voiceSampleId) {
+      return res.status(400).json({
+        ok: false,
+        error: "A voice sample id is required.",
+      });
+    }
+
+    if (builtInVoiceSamples.some((sample) => sample.id === voiceSampleId)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Built-in voice profiles cannot be deleted.",
+      });
+    }
+
+    const voiceSample = resolveVoiceSample(voiceSampleId);
+    if (!voiceSample) {
+      return res.status(404).json({
+        ok: false,
+        error: "That voice sample was not found.",
+      });
+    }
+
+    await deleteVoiceSampleAssets(voiceSample);
+
+    return res.json({
+      ok: true,
+      deletedVoiceSampleId: voiceSampleId,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
 app.post("/api/audiobook/generate", async (req, res) => {
   const {
     title,
@@ -1409,4 +1448,12 @@ function toPublicVoiceSample(voiceSample) {
 
 function getPublicVoiceSamples() {
   return [...voiceRegistry.values()].map(toPublicVoiceSample);
+}
+
+async function deleteVoiceSampleAssets(voiceSample) {
+  const metadataPath = path.join(voicesDir, `${voiceSample.id}.json`);
+  const pathsToDelete = [voiceSample.path, voiceSample.originalPath, metadataPath].filter(Boolean);
+
+  await Promise.allSettled(pathsToDelete.map((filePath) => fsp.rm(filePath, { force: true })));
+  voiceRegistry.delete(voiceSample.id);
 }
