@@ -105,7 +105,8 @@
                   </label>
                 </div>
 
-                <button class="primary-button" type="submit">Save to library</button>
+                <button id="book-submit" class="primary-button" type="submit">Save to library</button>
+                <p id="book-status" class="status-text">Import once, then Voxenor keeps the book in your local library.</p>
               </form>
             </section>
 
@@ -202,9 +203,16 @@
                 <div class="section-heading">
                   <div>
                     <p class="eyebrow">Reading flow</p>
-                    <h3>Pages</h3>
+                    <h3>Page queue</h3>
                   </div>
-                  <span class="soft-pill" id="chapter-count">0 pages</span>
+                  <div class="page-queue-meta">
+                    <span class="soft-pill" id="page-window-label">Current page</span>
+                    <span class="soft-pill" id="chapter-count">0 pages</span>
+                  </div>
+                </div>
+                <div class="page-nav-row">
+                  <button id="page-prev" class="ghost-button" type="button">Previous</button>
+                  <button id="page-next" class="ghost-button" type="button">Next</button>
                 </div>
                 <div id="chapter-list" class="chapter-list empty-state">
                   Open a saved book to see its pages.

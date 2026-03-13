@@ -186,7 +186,6 @@ h1 {
 
 h2 {
   font-size: clamp(2.25rem, 4vw, 4rem);
-  max-width: 11ch;
   color: #10261d;
 }
 
@@ -281,6 +280,11 @@ p {
   display: grid;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  max-width: min(78rem, 100%);
+}
+
+.hero-copy h2 {
+  max-width: 19ch;
 }
 
 .composer-grid {
@@ -329,6 +333,7 @@ p {
 }
 
 input[type="text"],
+input[type="password"],
 textarea,
 select {
   width: 100%;
@@ -346,6 +351,7 @@ select {
 }
 
 input[type="text"]:focus,
+input[type="password"]:focus,
 textarea:focus,
 select:focus {
   border-color: rgba(25, 163, 107, 0.36);
@@ -557,6 +563,10 @@ input[type="range"] {
   font-size: 0.94rem;
 }
 
+.status-text.is-error {
+  color: #a23e3e;
+}
+
 .voice-script {
   display: grid;
   gap: 0.45rem;
@@ -613,6 +623,25 @@ input[type="range"] {
 
 .glow-button {
   width: 100%;
+}
+
+.primary-button.is-loading {
+  position: relative;
+  padding-left: 3.15rem;
+}
+
+.primary-button.is-loading::before {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  top: 50%;
+  width: 1rem;
+  height: 1rem;
+  margin-top: -0.5rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.38);
+  border-top-color: rgba(255, 255, 255, 0.96);
+  animation: spin 0.7s linear infinite;
 }
 
 .primary-button:hover,
@@ -692,6 +721,23 @@ input[type="range"] {
   margin-top: 1rem;
 }
 
+.page-queue-meta,
+.page-nav-row {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.page-nav-row {
+  margin-top: 0.95rem;
+}
+
+.book-card-shell,
+.chapter-card-shell {
+  position: relative;
+}
+
 .book-card {
   width: 100%;
   display: grid;
@@ -699,6 +745,7 @@ input[type="range"] {
   gap: 0.85rem;
   align-items: center;
   padding: 0.8rem;
+  padding-right: 5.5rem;
   text-align: left;
   color: #113222;
   background: rgba(255, 255, 255, 0.72);
@@ -707,6 +754,30 @@ input[type="range"] {
   cursor: pointer;
   box-shadow: var(--shadow-soft);
   transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.book-card-delete,
+.chapter-delete-button {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  border: 1px solid rgba(212, 228, 220, 0.92);
+  border-radius: 999px;
+  padding: 0.42rem 0.72rem;
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(18, 62, 43, 0.82);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: 0 12px 24px rgba(16, 49, 35, 0.08);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.book-card-delete:hover,
+.chapter-delete-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(25, 163, 107, 0.32);
+  background: rgba(245, 252, 248, 0.96);
 }
 
 .book-card:hover,
@@ -760,6 +831,7 @@ input[type="range"] {
   gap: 0.9rem;
   align-items: start;
   padding: 0.98rem 1rem;
+  padding-right: 5.5rem;
   color: #113222;
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid rgba(214, 230, 221, 0.92);
@@ -783,6 +855,8 @@ input[type="range"] {
 }
 
 .chapter-title {
+  display: grid;
+  gap: 0.3rem;
   line-height: 1.45;
 }
 
@@ -791,6 +865,11 @@ input[type="range"] {
   gap: 0.45rem;
   flex-wrap: wrap;
   margin-top: 0.35rem;
+}
+
+.chapter-preview {
+  color: rgba(37, 95, 69, 0.76);
+  line-height: 1.45;
 }
 
 .status-chip {
@@ -807,6 +886,11 @@ input[type="range"] {
 
 .reader-panel {
   min-height: 70vh;
+}
+
+.reader-toolbar h2 {
+  max-width: none;
+  font-size: clamp(1.55rem, 2.5vw, 2.35rem);
 }
 
 .reader-content {
@@ -922,6 +1006,12 @@ input[type="range"] {
   }
   50% {
     transform: translate3d(1.4rem, -1.6rem, 0) scale(1.08);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

@@ -39,6 +39,8 @@ const state = {
   lastSelectionText: "",
   defaultExaggeration: 0.52,
   progressSaveTimer: 0,
+  bookImporting: false,
+  pagePreparing: false,
 };
 
 const voicePromptHints = {
@@ -57,11 +59,16 @@ const els = {
   bookTitle: document.querySelector("#book-title"),
   bookText: document.querySelector("#book-text"),
   bookFile: document.querySelector("#book-file"),
+  bookSubmit: document.querySelector("#book-submit"),
+  bookStatus: document.querySelector("#book-status"),
   bookLanguage: document.querySelector("#book-language"),
   listenerLanguage: document.querySelector("#listener-language"),
   audiobookLanguage: document.querySelector("#audiobook-language"),
   chapterList: document.querySelector("#chapter-list"),
   chapterCount: document.querySelector("#chapter-count"),
+  pageWindowLabel: document.querySelector("#page-window-label"),
+  pagePrev: document.querySelector("#page-prev"),
+  pageNext: document.querySelector("#page-next"),
   libraryCount: document.querySelector("#library-count"),
   bookLibrary: document.querySelector("#book-library"),
   profileName: document.querySelector("#profile-name"),
@@ -124,6 +131,8 @@ function attachEvents() {
   });
   els.logoutButton.addEventListener("click", handleLogout);
   els.bookForm.addEventListener("submit", handleBookOpen);
+  els.pagePrev.addEventListener("click", () => void openAdjacentPage(-1));
+  els.pageNext.addEventListener("click", () => void openAdjacentPage(1));
   els.playToggle.addEventListener("click", handlePlayToggle);
   els.pauseToggle.addEventListener("click", () => els.bookAudio.pause());
   els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
@@ -278,8 +287,30 @@ async function persistPreferences() {
   }
 }
 
+function setBookStatus(message, isError = false) {
+  els.bookStatus.textContent = message;
+  els.bookStatus.classList.toggle("is-error", isError);
+}
+
+function setBookImportState(isImporting) {
+  state.bookImporting = isImporting;
+  els.bookSubmit.disabled = isImporting;
+  els.bookSubmit.classList.toggle("is-loading", isImporting);
+  els.bookSubmit.textContent = isImporting ? "Importing..." : "Save to library";
+}
+
 async function handleBookOpen(event) {
   event.preventDefault();
+  if (state.bookImporting) {
+    return;
+  }
+
+  const hasText = Boolean(els.bookText.value.trim());
+  const file = els.bookFile.files[0];
+  if (!hasText && !file) {
+    setBookStatus("Paste some text or choose a PDF, EPUB, TXT, or image first.", true);
+    return;
+  }
 
   const formData = new FormData();
   formData.append("title", els.bookTitle.value.trim());
@@ -287,11 +318,13 @@ async function handleBookOpen(event) {
   formData.append("sourceLanguage", els.bookLanguage.value);
   formData.append("listenerLanguage", els.listenerLanguage.value);
   formData.append("audiobookLanguage", els.audiobookLanguage.value);
-  if (els.bookFile.files[0]) {
-    formData.append("bookFile", els.bookFile.files[0]);
+  if (file) {
+    formData.append("bookFile", file);
   }
 
-  setSelectionTranslation("Saving your book into Voxenor...", true);
+  setBookImportState(true);
+  setBookStatus(file ? "Uploading and extracting your book..." : "Saving your text into the library...");
+  setSelectionTranslation("Saving your book into Voxenor...", false);
 
   try {
     const payload = await fetchJson("/api/books/import", {
@@ -306,10 +339,20 @@ async function handleBookOpen(event) {
     applyBookPage(payload.book, payload.page);
     renderPageList();
     updateLanguagePills();
-    setSelectionTranslation(`Saved "${payload.book.title}" to your library.`, false);
+    const importMessage = payload.existing
+      ? `"${payload.book.title}" was already in your library, so I opened the saved copy.`
+      : `Saved "${payload.book.title}" to your library.`;
+    setBookStatus(payload.existing ? importMessage : `${importMessage} Preparing page 1 automatically...`);
+    setSelectionTranslation(importMessage, false);
     els.bookFile.value = "";
+    void maybeAutoPrepareCurrentPage(
+      payload.existing ? "Preparing the saved page automatically..." : "Preparing the first page automatically..."
+    );
   } catch (error) {
+    setBookStatus(error.message, true);
     setSelectionTranslation(error.message, true);
+  } finally {
+    setBookImportState(false);
   }
 }
 
@@ -423,6 +466,9 @@ function renderLibraryBooks() {
   }
 
   state.libraryBooks.forEach((book) => {
+    const shell = document.createElement("div");
+    shell.className = "book-card-shell";
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = `book-card${state.currentBook?.id === book.id ? " active" : ""}`;
@@ -437,7 +483,20 @@ function renderLibraryBooks() {
     button.addEventListener("click", () => {
       void loadLibraryBook(book.id, book.progress?.pageIndex || 0);
     });
-    els.bookLibrary.append(button);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "book-card-delete";
+    deleteButton.textContent = "Delete";
+    deleteButton.setAttribute("aria-label", `Delete ${book.title}`);
+    deleteButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteBook(book.id);
+    });
+
+    shell.append(button, deleteButton);
+    els.bookLibrary.append(shell);
   });
 }
 
@@ -451,6 +510,53 @@ async function loadLibraryBook(bookId, pageIndex = 0) {
   await openBookPage(pageIndex);
 }
 
+async function handleDeleteBook(bookId) {
+  const book = state.libraryBooks.find((candidate) => candidate.id === bookId);
+  if (!book) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete "${book.title}" from your library?`);
+  if (!confirmed) {
+    return;
+  }
+
+  setBookStatus(`Deleting "${book.title}"...`);
+  try {
+    await fetchJson(`/api/books/${encodeURIComponent(bookId)}`, {
+      method: "DELETE",
+    });
+
+    state.libraryBooks = state.libraryBooks.filter((candidate) => candidate.id !== bookId);
+    renderLibraryBooks();
+
+    if (state.currentBook?.id === bookId) {
+      const nextBook = state.libraryBooks[0] || null;
+      if (nextBook) {
+        await loadLibraryBook(nextBook.id, nextBook.progress?.pageIndex || 0);
+      } else {
+        state.currentBook = null;
+        state.currentPageIndex = 0;
+        state.chapters = [];
+        state.fullText = "";
+        state.sourceText = "";
+        state.alignmentSegments = [];
+        state.alignmentWordTimings = [];
+        els.bookAudio.pause();
+        els.bookAudio.removeAttribute("src");
+        els.bookAudio.load();
+        renderPageList();
+        renderCurrentChapter();
+        updateLanguagePills();
+      }
+    }
+
+    setBookStatus(`Removed "${book.title}" from your library.`);
+  } catch (error) {
+    setBookStatus(error.message, true);
+  }
+}
+
 function upsertLibraryBook(book) {
   state.libraryBooks = [
     book,
@@ -458,11 +564,28 @@ function upsertLibraryBook(book) {
   ];
 }
 
+function getVisiblePageIndexes(totalPages, currentPageIndex, maxVisible = 5) {
+  if (!totalPages) {
+    return [];
+  }
+
+  const visibleCount = Math.min(maxVisible, totalPages);
+  let start = Math.max(0, currentPageIndex - 1);
+  if (start + visibleCount > totalPages) {
+    start = Math.max(0, totalPages - visibleCount);
+  }
+
+  return Array.from({ length: visibleCount }, (_, offset) => start + offset);
+}
+
 function renderPageList() {
   els.chapterList.classList.remove("empty-state");
   els.chapterList.textContent = "";
   const pages = state.currentBook?.pages || [];
   els.chapterCount.textContent = `${pages.length} page${pages.length === 1 ? "" : "s"}`;
+  els.pageWindowLabel.textContent = pages.length ? `Page ${state.currentPageIndex + 1} of ${pages.length}` : "Current page";
+  els.pagePrev.disabled = !pages.length || state.currentPageIndex <= 0;
+  els.pageNext.disabled = !pages.length || state.currentPageIndex >= pages.length - 1;
 
   if (!pages.length) {
     els.chapterList.classList.add("empty-state");
@@ -470,32 +593,47 @@ function renderPageList() {
     return;
   }
 
-  pages.forEach((page, index) => {
-    const fragment = els.chapterButtonTemplate.content.cloneNode(true);
-    const button = fragment.querySelector(".chapter-button");
-    const indexNode = fragment.querySelector(".chapter-index");
-    const titleNode = fragment.querySelector(".chapter-title");
+  const visibleIndexes = getVisiblePageIndexes(pages.length, state.currentPageIndex);
 
-    indexNode.textContent = String(index + 1).padStart(2, "0");
-    titleNode.innerHTML = `
-      <span>${escapeHtml(page.title || `Page ${index + 1}`)}</span>
-      <span class="chapter-meta">
-        <span class="status-chip">${escapeHtml(page.translationStatus || "idle")}</span>
-        <span class="status-chip">${escapeHtml(page.audioStatus || "idle")}</span>
+  visibleIndexes.forEach((index) => {
+    const page = pages[index];
+    const shell = document.createElement("div");
+    shell.className = "chapter-card-shell";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `chapter-button${index === state.currentPageIndex ? " active" : ""}`;
+    button.dataset.pageIndex = String(index);
+    button.innerHTML = `
+      <span class="chapter-index">${String(index + 1).padStart(2, "0")}</span>
+      <span class="chapter-title">
+        <span>${escapeHtml(page.title || `Page ${index + 1}`)}</span>
+        <span class="chapter-meta">
+          <span class="status-chip">${escapeHtml(page.translationStatus || "idle")}</span>
+          <span class="status-chip">${escapeHtml(page.audioStatus || "idle")}</span>
+        </span>
+        <small class="chapter-preview">${escapeHtml(page.preview || "Open this page to start reading.")}</small>
       </span>
     `;
-
-    if (index === state.currentPageIndex) {
-      button.classList.add("active");
-    }
-
     button.addEventListener("click", () => {
       state.currentPageIndex = index;
       setActiveChapterButton(index);
       void openBookPage(index);
     });
 
-    els.chapterList.append(fragment);
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "chapter-delete-button";
+    removeButton.textContent = "Remove";
+    removeButton.setAttribute("aria-label", `Remove ${page.title || `Page ${index + 1}`}`);
+    removeButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeletePage(index);
+    });
+
+    shell.append(button, removeButton);
+    els.chapterList.append(shell);
   });
 }
 
@@ -510,11 +648,22 @@ async function openBookPage(pageIndex, options = {}) {
   applyBookPage(state.currentBook, payload.page, options);
   renderPageList();
   await saveProgress();
+  if (options.autoPrepare !== false) {
+    void maybeAutoPrepareCurrentPage();
+  }
 }
 
 function applyBookPage(book, page, options = {}) {
   state.currentBook = book;
   state.currentPageIndex = page.index;
+  const summaryPage = state.currentBook?.pages?.[page.index];
+  if (summaryPage) {
+    summaryPage.title = page.title || summaryPage.title || `Page ${page.index + 1}`;
+    summaryPage.preview = truncate(page.displayText || page.sourceText || "", 130);
+    summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
+    summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
+    summaryPage.ready = Boolean(page.audioUrl);
+  }
   state.title = book.title;
   state.sourceText = page.sourceText || "";
   state.fullText = page.displayText || "";
@@ -565,7 +714,7 @@ function applyBookPage(book, page, options = {}) {
   }
 
   updateGenerationUi({
-    label: page.audioUrl ? "Page ready." : "Page saved. Generate audio when you want to listen.",
+    label: page.audioUrl ? "Page ready." : "Page saved. Voxenor can prepare this page as soon as you open it.",
     progress: page.audioUrl ? 100 : 0,
     logs: page.logs || [],
   });
@@ -848,17 +997,87 @@ async function handleDeleteVoiceSample(voiceSampleId) {
   }
 }
 
+function maybeAutoPrepareCurrentPage(statusMessage = "") {
+  const currentPage = state.currentBook?.pages?.[state.currentPageIndex];
+  if (!state.currentBook || !currentPage || currentPage.ready || currentPage.audioStatus === "running" || state.pagePreparing) {
+    return;
+  }
+
+  void handlePrepareCurrentPage({
+    background: true,
+    statusMessage,
+  });
+}
+
+async function openAdjacentPage(direction) {
+  if (!state.currentBook?.pages?.length) {
+    return;
+  }
+
+  const targetIndex = Math.max(0, Math.min(state.currentBook.pages.length - 1, state.currentPageIndex + direction));
+  if (targetIndex === state.currentPageIndex) {
+    return;
+  }
+
+  await openBookPage(targetIndex);
+}
+
+async function handleDeletePage(pageIndex) {
+  if (!state.currentBook) {
+    return;
+  }
+
+  const page = state.currentBook.pages?.[pageIndex];
+  const label = page?.title || `Page ${pageIndex + 1}`;
+  const confirmed = window.confirm(`Remove ${label} from this saved book?`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    updateGenerationUi({
+      label: `Removing ${label}...`,
+      progress: 0,
+      logs: [`Removing ${label} from the saved reading flow.`],
+    });
+    const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${pageIndex}`, {
+      method: "DELETE",
+    });
+
+    upsertLibraryBook(payload.book);
+    state.currentBook = payload.book;
+    renderLibraryBooks();
+    applyBookPage(payload.book, payload.page);
+    renderPageList();
+    await saveProgress();
+    setBookStatus(`${label} removed from "${payload.book.title}".`);
+    void maybeAutoPrepareCurrentPage("Preparing the next available page...");
+  } catch (error) {
+    setBookStatus(error.message, true);
+    updateGenerationUi({
+      label: error.message,
+      progress: 0,
+      logs: [error.message],
+    });
+  }
+}
+
 async function handlePrepareCurrentPage(options = {}) {
   if (!state.currentBook) {
     setSelectionTranslation("Save a book into your library first.", true);
     return;
   }
 
+  if (state.pagePreparing) {
+    return;
+  }
+
   try {
+    state.pagePreparing = true;
     els.generateButton.disabled = true;
     els.generationStatus.classList.remove("hidden");
     updateGenerationUi({
-      label: `Preparing page ${state.currentPageIndex + 1}...`,
+      label: options.statusMessage || `Preparing page ${state.currentPageIndex + 1}...`,
       progress: 32,
       logs: ["Translating and generating the current page."],
     });
@@ -880,14 +1099,17 @@ async function handlePrepareCurrentPage(options = {}) {
       autoplay: Boolean(options.autoplay),
     });
     renderPageList();
+    setBookStatus(`Page ${payload.page.index + 1} is ready in "${payload.book.title}".`);
     await persistPreferences();
   } catch (error) {
+    setBookStatus(error.message, true);
     updateGenerationUi({
       label: error.message,
       progress: 0,
       logs: [error.message],
     });
   } finally {
+    state.pagePreparing = false;
     els.generateButton.disabled = false;
   }
 }
@@ -898,6 +1120,14 @@ async function handlePlayToggle() {
   }
 
   if (!els.bookAudio.src) {
+    if (state.pagePreparing) {
+      updateGenerationUi({
+        label: `Still preparing page ${state.currentPageIndex + 1}...`,
+        progress: 48,
+        logs: ["Voxenor is still translating and generating this page."],
+      });
+      return;
+    }
     await handlePrepareCurrentPage({ autoplay: true });
     return;
   }
@@ -1210,8 +1440,8 @@ function resolveChapterIndexForWord(globalWordIndex) {
 }
 
 function setActiveChapterButton(activeIndex) {
-  document.querySelectorAll(".chapter-button").forEach((node, index) => {
-    node.classList.toggle("active", index === activeIndex);
+  document.querySelectorAll(".chapter-button").forEach((node) => {
+    node.classList.toggle("active", Number(node.dataset.pageIndex) === activeIndex);
   });
 }
 

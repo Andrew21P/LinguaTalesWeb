@@ -380,17 +380,41 @@ app.get("/api/books", requireSession, async (_req, res) => {
 
 app.post("/api/books/import", requireSession, upload.single("bookFile"), async (req, res) => {
   try {
-    const book = await createLibraryBookFromRequest(req);
+    const imported = await createLibraryBookFromRequest(req);
     return res.json({
       ok: true,
-      book: toPublicBook(book),
-      page: toPublicBookPage(book, book.progress?.pageIndex || 0),
+      existing: Boolean(imported.existing),
+      book: toPublicBook(imported.book),
+      page: toPublicBookPage(imported.book, imported.book.progress?.pageIndex || 0),
     });
   } catch (error) {
     if (req.file?.path) {
       await fsp.rm(req.file.path, { force: true }).catch(() => {});
     }
     return res.status(400).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.delete("/api/books/:bookId", requireSession, async (req, res) => {
+  try {
+    const book = await readLibraryBook(req.params.bookId);
+    if (!book) {
+      return res.status(404).json({
+        ok: false,
+        error: "That book was not found.",
+      });
+    }
+
+    await deleteLibraryBook(req.params.bookId);
+    return res.json({
+      ok: true,
+      deletedBookId: req.params.bookId,
+    });
+  } catch (error) {
+    return res.status(500).json({
       ok: false,
       error: error.message,
     });
@@ -435,6 +459,23 @@ app.get("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, res) 
     });
   } catch (error) {
     return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.delete("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, res) => {
+  try {
+    const result = await deleteLibraryBookPage(req.params.bookId, Number(req.params.pageIndex));
+    return res.json({
+      ok: true,
+      book: toPublicBook(result.book),
+      page: toPublicBookPage(result.book, result.pageIndex),
+    });
+  } catch (error) {
+    const statusCode = error.message.includes("not found") ? 404 : 400;
+    return res.status(statusCode).json({
       ok: false,
       error: error.message,
     });
@@ -1963,6 +2004,94 @@ function countWords(text) {
   return (text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || []).length;
 }
 
+async function hashFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha1");
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+function buildBookContentFingerprint({ detectedLanguage, text }) {
+  const hash = crypto.createHash("sha1");
+  hash.update(normalizeLanguageCode(detectedLanguage || "auto"));
+  hash.update("\n");
+  hash.update(normalizeText(text));
+  return hash.digest("hex");
+}
+
+function getBookContentFingerprint(book) {
+  if (book.contentFingerprint) {
+    return book.contentFingerprint;
+  }
+
+  return buildBookContentFingerprint({
+    detectedLanguage: book.detectedLanguage || book.sourceLanguageHint || "auto",
+    text: book.pages.map((page) => page.originalText || "").join("\n\n"),
+  });
+}
+
+async function getBookSourceFingerprint(book) {
+  if (book.sourceFileFingerprint) {
+    return book.sourceFileFingerprint;
+  }
+
+  const bookDir = getLibraryBookDir(book.id);
+  if (!fs.existsSync(bookDir)) {
+    return "";
+  }
+
+  const entries = await fsp.readdir(bookDir).catch(() => []);
+  const sourceEntry = entries.find((entry) => entry.startsWith("source."));
+  if (!sourceEntry) {
+    return "";
+  }
+
+  const fingerprint = await hashFile(path.join(bookDir, sourceEntry)).catch(() => "");
+  if (fingerprint) {
+    book.sourceFileFingerprint = fingerprint;
+    await persistLibraryBook(book);
+  }
+  return fingerprint;
+}
+
+async function findExistingLibraryBook({ contentFingerprint, sourceFileFingerprint, audiobookLanguage }) {
+  if (!contentFingerprint && !sourceFileFingerprint) {
+    return null;
+  }
+
+  const books = await listLibraryBooks();
+  const normalizedAudiobookLanguage = normalizeLanguageCode(audiobookLanguage || "pt-pt");
+  for (const book of books) {
+    const bookFingerprint = contentFingerprint ? getBookContentFingerprint(book) : "";
+    const bookSourceFingerprint = sourceFileFingerprint ? await getBookSourceFingerprint(book) : "";
+    const missingContentFingerprint = Boolean(contentFingerprint && !book.contentFingerprint);
+    const missingSourceFingerprint = Boolean(sourceFileFingerprint && !book.sourceFileFingerprint);
+    if (
+      (bookFingerprint && bookFingerprint === contentFingerprint) ||
+      (bookSourceFingerprint && bookSourceFingerprint === sourceFileFingerprint)
+    ) {
+      if (normalizeLanguageCode(book.audiobookLanguage || "pt-pt") !== normalizedAudiobookLanguage) {
+        continue;
+      }
+      if (missingContentFingerprint) {
+        book.contentFingerprint = bookFingerprint;
+      }
+      if (missingSourceFingerprint) {
+        book.sourceFileFingerprint = bookSourceFingerprint;
+      }
+      if (missingContentFingerprint || missingSourceFingerprint) {
+        await persistLibraryBook(book);
+      }
+      return book;
+    }
+  }
+
+  return null;
+}
+
 function toPublicBookSummary(book) {
   return {
     id: book.id,
@@ -1987,7 +2116,6 @@ function toPublicBook(book) {
     pages: book.pages.map((page, index) => ({
       index,
       title: page.title || `Page ${index + 1}`,
-      preview: truncateText(page.translatedText || page.originalText, 130),
       translationStatus: page.translationStatus || "idle",
       audioStatus: page.audioStatus || "idle",
       ready: Boolean(page.audioUrl),
@@ -2019,12 +2147,52 @@ async function createLibraryBookFromRequest(req) {
   const sourceLanguageHint = normalizeLanguageCode(req.body?.sourceLanguage || userPreferences.sourceLanguage || "auto");
   const listenerLanguage = normalizeLanguageCode(req.body?.listenerLanguage || userPreferences.listenerLanguage || "en");
   const audiobookLanguage = normalizeLanguageCode(req.body?.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt");
+  const sourceFileFingerprint = req.file?.path ? await hashFile(req.file.path).catch(() => "") : "";
+  if (sourceFileFingerprint) {
+    const existingBook = await findExistingLibraryBook({
+      sourceFileFingerprint,
+      audiobookLanguage,
+    });
+    if (existingBook) {
+      if (req.file?.path) {
+        await fsp.rm(req.file.path, { force: true }).catch(() => {});
+      }
+      return {
+        book: existingBook,
+        existing: true,
+      };
+    }
+  }
+
   const extraction = await extractBookPayload({
     manualText,
     title: requestedTitle,
     sourceLanguageHint,
     file: req.file,
   });
+  const extractedText = normalizeText(extraction.text || "");
+  if (!extractedText) {
+    throw new Error("I could not extract readable text from that upload.");
+  }
+
+  const contentFingerprint = buildBookContentFingerprint({
+    detectedLanguage: extraction.detectedLanguage || sourceLanguageHint,
+    text: extractedText,
+  });
+  const existingBook = await findExistingLibraryBook({
+    contentFingerprint,
+    sourceFileFingerprint,
+    audiobookLanguage,
+  });
+  if (existingBook) {
+    if (req.file?.path) {
+      await fsp.rm(req.file.path, { force: true }).catch(() => {});
+    }
+    return {
+      book: existingBook,
+      existing: true,
+    };
+  }
 
   const bookId = crypto.randomUUID();
   const bookDir = getLibraryBookDir(bookId);
@@ -2042,7 +2210,7 @@ async function createLibraryBookFromRequest(req) {
   }
 
   const coverUrl = fs.existsSync(path.join(bookDir, "cover.jpg")) ? `/library-assets/${bookId}/cover.jpg` : "";
-  const pages = paginateBookText(extraction.text).map((pageText, index) => ({
+  const pages = paginateBookText(extractedText).map((pageText, index) => ({
     title: `Page ${index + 1}`,
     originalText: pageText,
     translatedText: "",
@@ -2062,6 +2230,8 @@ async function createLibraryBookFromRequest(req) {
     detectedLanguage: normalizeLanguageCode(extraction.detectedLanguage || sourceLanguageHint || "auto"),
     listenerLanguage,
     audiobookLanguage,
+    contentFingerprint,
+    sourceFileFingerprint,
     voiceSampleId: userPreferences.selectedVoiceId || "storybook",
     coverUrl,
     createdAt: new Date().toISOString(),
@@ -2076,7 +2246,10 @@ async function createLibraryBookFromRequest(req) {
 
   await persistLibraryBook(book);
   await persistLibraryDerivedTexts(book);
-  return book;
+  return {
+    book,
+    existing: false,
+  };
 }
 
 async function extractBookPayload({ manualText, title, sourceLanguageHint, file }) {
@@ -2151,6 +2324,51 @@ async function clearBookAudioCache(book) {
     page.alignment = null;
     page.logs = [];
   }
+}
+
+async function deleteLibraryBook(bookId) {
+  await fsp.rm(getLibraryBookDir(bookId), { recursive: true, force: true });
+}
+
+async function deleteLibraryBookPage(bookId, pageIndex) {
+  const book = await readLibraryBook(bookId);
+  if (!book) {
+    throw new Error("That book was not found.");
+  }
+
+  if (!book.pages?.length) {
+    throw new Error("That book has no pages left.");
+  }
+
+  if (book.pages.length === 1) {
+    throw new Error("This book only has one page left. Delete the whole book instead.");
+  }
+
+  const safePageIndex = clampPageIndex(book, pageIndex);
+  book.pages.splice(safePageIndex, 1);
+
+  book.pages.forEach((page, index) => {
+    if (!page.title || /^Page \d+$/u.test(page.title)) {
+      page.title = `Page ${index + 1}`;
+    }
+  });
+
+  const currentProgressIndex = Number(book.progress?.pageIndex || 0);
+  const nextProgressIndex = currentProgressIndex > safePageIndex ? currentProgressIndex - 1 : currentProgressIndex;
+  book.progress = {
+    pageIndex: clampPageIndex(book, nextProgressIndex),
+    audioTime: 0,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await clearBookAudioCache(book);
+  await persistLibraryBook(book);
+  await persistLibraryDerivedTexts(book);
+
+  return {
+    book,
+    pageIndex: book.progress.pageIndex,
+  };
 }
 
 async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, prefetch = false }) {
