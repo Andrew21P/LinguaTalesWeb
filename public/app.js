@@ -30,6 +30,9 @@ const state = {
   selectionTranslateTimer: 0,
   lastSelectionText: "",
   defaultExaggeration: 0.58,
+  defaultSpeed: 1,
+  calibrationEmotion: 0.58,
+  calibrationSpeed: 1,
 };
 
 const voicePromptHints = {
@@ -73,6 +76,10 @@ const els = {
   generationPercent: document.querySelector("#generation-percent"),
   generationProgress: document.querySelector("#generation-progress"),
   generationLog: document.querySelector("#generation-log"),
+  emotionControl: document.querySelector("#emotion-control"),
+  emotionNumber: document.querySelector("#emotion-number"),
+  speedControl: document.querySelector("#speed-control"),
+  speedNumber: document.querySelector("#speed-number"),
 };
 
 const languageLabels = new Map();
@@ -86,9 +93,13 @@ async function bootstrap() {
   const meta = await fetchJson("/api/meta");
   state.voiceSamples = meta.voiceSamples;
   state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.58;
+  state.defaultSpeed = meta.defaults?.speed ?? 1;
+  state.calibrationEmotion = state.defaultExaggeration;
+  state.calibrationSpeed = state.defaultSpeed;
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
+  syncCalibrationControls();
   attachEvents();
 }
 
@@ -108,6 +119,10 @@ function attachEvents() {
   els.bookLanguage.addEventListener("change", updateLanguagePills);
   els.listenerLanguage.addEventListener("change", updateLanguagePills);
   els.audiobookLanguage.addEventListener("change", updateLanguagePills);
+  els.emotionControl.addEventListener("input", () => handleCalibrationRangeInput("emotion"));
+  els.emotionNumber.addEventListener("change", () => handleCalibrationNumberInput("emotion"));
+  els.speedControl.addEventListener("input", () => handleCalibrationRangeInput("speed"));
+  els.speedNumber.addEventListener("change", () => handleCalibrationNumberInput("speed"));
   els.readerContent.addEventListener("scroll", handleReaderManualScroll, { passive: true });
 
   document.addEventListener("click", (event) => {
@@ -536,6 +551,8 @@ async function handleGenerateAudiobook() {
         listenerLanguage: els.listenerLanguage.value,
         audiobookLanguage: els.audiobookLanguage.value,
         voiceSampleId: state.selectedVoice?.builtIn ? "" : state.selectedVoice?.id || "",
+        exaggeration: state.calibrationEmotion,
+        speed: state.calibrationSpeed,
       }),
     });
 
@@ -814,6 +831,47 @@ function updateVoicePromptHint() {
   els.voiceScriptText.textContent =
     voicePromptHints[language] ||
     "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
+}
+
+function syncCalibrationControls() {
+  setCalibrationControlValue("emotion", state.calibrationEmotion);
+  setCalibrationControlValue("speed", state.calibrationSpeed);
+}
+
+function handleCalibrationRangeInput(kind) {
+  const value = kind === "emotion" ? Number(els.emotionControl.value) : Number(els.speedControl.value);
+  setCalibrationControlValue(kind, value);
+}
+
+function handleCalibrationNumberInput(kind) {
+  const node = kind === "emotion" ? els.emotionNumber : els.speedNumber;
+  const fallback = kind === "emotion" ? state.defaultExaggeration : state.defaultSpeed;
+  const value = Number(node.value);
+  if (!Number.isFinite(value)) {
+    setCalibrationControlValue(kind, fallback);
+    return;
+  }
+  setCalibrationControlValue(kind, value);
+}
+
+function setCalibrationControlValue(kind, value) {
+  if (kind === "emotion") {
+    const safeValue = clampControlValue(value, 0.3, 0.85);
+    state.calibrationEmotion = safeValue;
+    els.emotionControl.value = safeValue.toFixed(2);
+    els.emotionNumber.value = safeValue.toFixed(2);
+    return;
+  }
+
+  const safeValue = clampControlValue(value, 0.85, 1.15);
+  state.calibrationSpeed = safeValue;
+  els.speedControl.value = safeValue.toFixed(2);
+  els.speedNumber.value = safeValue.toFixed(2);
+}
+
+function clampControlValue(value, min, max) {
+  const safeValue = Number.isFinite(value) ? value : min;
+  return Math.min(max, Math.max(min, Math.round(safeValue * 100) / 100));
 }
 
 function getLanguageLabel(code) {

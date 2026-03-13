@@ -126,6 +126,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
     parser.add_argument("--exaggeration", type=float, default=0.58)
+    parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--cfg-weight", type=float, default=0.32)
     return parser.parse_args()
 
@@ -223,7 +224,11 @@ def main() -> None:
                 current_time += pause_duration
 
         print("PROGRESS:92|Combining narration chunks.", flush=True)
-        combine_wavs(part_paths, output_path)
+        combine_wavs(part_paths, output_path, args.speed)
+        final_duration = probe_audio_duration(output_path)
+        if final_duration > 0 and current_time > 0:
+            alignment_segments = scale_alignment_segments(alignment_segments, final_duration / current_time)
+            current_time = final_duration
 
         if args.metadata_output:
             metadata_output = Path(args.metadata_output)
@@ -235,6 +240,7 @@ def main() -> None:
                         "totalDuration": current_time,
                         "wordCount": current_word,
                         "preparedText": prepared_text,
+                        "speed": args.speed,
                     },
                     ensure_ascii=False,
                 ),
@@ -530,7 +536,7 @@ def count_words(text: str) -> int:
     return len(WORD_PATTERN.findall(text))
 
 
-def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
+def combine_wavs(part_paths: list[Path], output_path: Path, speed: float = 1.0) -> None:
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as list_file:
         list_path = Path(list_file.name)
         for part_path in part_paths:
@@ -538,6 +544,9 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
 
     try:
         raw_output_path = output_path.with_name(f"{output_path.stem}.raw.wav")
+        mastering_filter_chain = MASTERING_FILTER_CHAIN
+        if abs(speed - 1.0) > 0.001:
+            mastering_filter_chain = f"{MASTERING_FILTER_CHAIN},atempo={max(0.5, min(2.0, speed)):.3f}"
         result = subprocess.run(
             [
                 "ffmpeg",
@@ -566,7 +575,7 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
                 "-i",
                 str(raw_output_path),
                 "-af",
-                MASTERING_FILTER_CHAIN,
+                mastering_filter_chain,
                 "-ar",
                 "24000",
                 "-ac",
@@ -585,6 +594,45 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
         list_path.unlink(missing_ok=True)
         raw_output_path = output_path.with_name(f"{output_path.stem}.raw.wav")
         raw_output_path.unlink(missing_ok=True)
+
+
+def probe_audio_duration(audio_path: Path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(audio_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return 0.0
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def scale_alignment_segments(segments: list[dict], scale_factor: float) -> list[dict]:
+    if scale_factor <= 0:
+        return segments
+    scaled_segments = []
+    for segment in segments:
+        scaled_segments.append(
+            {
+                **segment,
+                "start": segment["start"] * scale_factor,
+                "end": segment["end"] * scale_factor,
+            }
+        )
+    return scaled_segments
 
 
 def can_use_say_fallback() -> bool:
