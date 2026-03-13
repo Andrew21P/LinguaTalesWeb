@@ -20,6 +20,7 @@ LANGUAGE_TO_TESSERACT = {
     "nl": "nld",
     "sv": "swe",
     "pl": "pol",
+    "ru": "rus",
     "tr": "tur",
     "zh": "chi_sim",
     "ja": "jpn",
@@ -228,7 +229,7 @@ def resolve_tesseract_languages(available_languages: set[str], source_language_h
     hinted = LANGUAGE_TO_TESSERACT.get(source_language_hint)
     if hinted:
         candidates.append(hinted)
-    candidates.extend(["por", "eng", "spa", "fra", "deu", "ita", "nld"])
+    candidates.extend(["por", "eng", "spa", "fra", "deu", "ita", "nld", "rus"])
 
     selected = [candidate for candidate in candidates if candidate in available_languages]
     if not selected:

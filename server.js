@@ -15,8 +15,8 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
-const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.56);
-const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.96);
+const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.52);
+const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.94);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
 
@@ -60,6 +60,7 @@ const sourceLanguageCatalog = [
   { code: "nl", label: "Dutch" },
   { code: "sv", label: "Swedish" },
   { code: "pl", label: "Polish" },
+  { code: "ru", label: "Russian" },
   { code: "tr", label: "Turkish" },
   { code: "zh", label: "Chinese" },
   { code: "ja", label: "Japanese" },
@@ -995,16 +996,20 @@ async function transcodeVoiceSampleToWav(inputPath, outputPath) {
   const aggressiveFilters = [
     "silenceremove=start_periods=1:start_silence=0.18:start_threshold=-42dB:stop_periods=-1:stop_silence=0.22:stop_threshold=-42dB",
     "highpass=f=65",
-    "lowpass=f=14200",
-    "afftdn=nr=10:nf=-32",
-    "acompressor=threshold=-19dB:ratio=2.0:attack=8:release=75:makeup=1.5",
+    "lowpass=f=15800",
+    "afftdn=nr=7:nf=-34",
+    "equalizer=f=3200:t=q:w=1.1:g=1.2",
+    "equalizer=f=7600:t=q:w=1.0:g=1.0",
+    "acompressor=threshold=-19dB:ratio=1.9:attack=8:release=72:makeup=1.4",
     "alimiter=limit=0.96",
   ].join(",");
   const safeFilters = [
     "highpass=f=65",
-    "lowpass=f=14200",
-    "afftdn=nr=8:nf=-34",
-    "acompressor=threshold=-20dB:ratio=1.8:attack=10:release=85:makeup=1.2",
+    "lowpass=f=15600",
+    "afftdn=nr=5:nf=-35",
+    "equalizer=f=3000:t=q:w=1.2:g=0.9",
+    "equalizer=f=7200:t=q:w=1.1:g=0.8",
+    "acompressor=threshold=-20dB:ratio=1.75:attack=10:release=82:makeup=1.1",
     "alimiter=limit=0.96",
   ].join(",");
 

@@ -17,13 +17,15 @@ MIN_VOICE_PROMPT_SECONDS = float(os.getenv("MIN_VOICE_PROMPT_SECONDS", "2.4"))
 MASTERING_FILTER_CHAIN = ",".join(
     [
         "highpass=f=55",
-        "lowpass=f=15000",
-        "equalizer=f=180:t=q:w=0.9:g=0.5",
-        "equalizer=f=2400:t=q:w=1.1:g=1.8",
-        "equalizer=f=5400:t=q:w=1.2:g=1.5",
-        "deesser=i=0.12:m=0.42:f=0.42:s=o",
-        "acompressor=threshold=-20dB:ratio=2.2:attack=10:release=82:makeup=2.1",
-        "speechnorm=e=6.7:r=0.0007:l=1",
+        "lowpass=f=16800",
+        "equalizer=f=180:t=q:w=0.9:g=0.4",
+        "equalizer=f=2400:t=q:w=1.1:g=1.7",
+        "equalizer=f=5600:t=q:w=1.2:g=1.7",
+        "equalizer=f=8600:t=q:w=0.9:g=1.3",
+        "equalizer=f=11200:t=q:w=0.8:g=0.8",
+        "deesser=i=0.09:m=0.34:f=0.40:s=o",
+        "acompressor=threshold=-21dB:ratio=2.0:attack=8:release=78:makeup=1.8",
+        "speechnorm=e=6.3:r=0.00065:l=1",
         "alimiter=limit=0.94",
     ]
 )
@@ -126,8 +128,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metadata-output", default="")
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
-    parser.add_argument("--exaggeration", type=float, default=0.56)
-    parser.add_argument("--speed", type=float, default=0.96)
+    parser.add_argument("--exaggeration", type=float, default=0.52)
+    parser.add_argument("--speed", type=float, default=0.94)
     parser.add_argument("--cfg-weight", type=float, default=0.32)
     return parser.parse_args()
 

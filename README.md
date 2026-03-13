@@ -83,8 +83,8 @@ Optional variables:
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
-- `DEFAULT_EXAGGERATION=0.56` if you want to tune the fixed narration expressiveness default
-- `DEFAULT_NARRATION_SPEED=0.96` if you want to tune the default rendered narration tempo
+- `DEFAULT_EXAGGERATION=0.52` if you want to tune the fixed narration expressiveness default
+- `DEFAULT_NARRATION_SPEED=0.94` if you want to tune the default rendered narration tempo
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
 
 ### 4. Run the app
@@ -110,14 +110,14 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 ## Language support
 
 - Fully supported narration target right now: `Portuguese (Portugal)`.
-- Books can still come from other languages. The app can detect the source language and translate into Portuguese when needed.
+- Books can still come from other languages, including `Russian`. The app can detect the source language and translate into Portuguese when needed.
 - The listener language is separate from the audiobook language so inline translations can stay personalized.
 
 ## Notes about translation
 
 - Small phrase translation is wired to free services by default.
 - Whole-book translation is also supported, but quality and reliability are best when you self-host LibreTranslate.
-- The public MyMemory fallback is convenient for testing, but it is not ideal for long books.
+- The public MyMemory fallback is convenient for testing, but it is not ideal for long books or literary translation.
 
 ## Notes about OCR
 
@@ -128,4 +128,4 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 
 This project uses the official Python package interface from Resemble AI's Chatterbox repository. The generation script targets `ChatterboxMultilingualTTS`, which supports Portuguese as `pt`, and falls back to a macOS demo voice only when the host machine cannot install the official Chatterbox runtime.
 
-LinguaTales keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses a warm local Chatterbox worker to avoid repeated model loads, and runs a light mastering chain after synthesis for a cleaner final export.
+LinguaTales keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses a warm local Chatterbox worker to avoid repeated model loads, and runs a brighter mastering chain after synthesis for a cleaner final export.
