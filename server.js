@@ -16,7 +16,6 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
 const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.58);
-const defaultSpeed = Number(process.env.DEFAULT_SPEED || 1);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 
 const rootDir = __dirname;
@@ -186,7 +185,6 @@ app.get("/api/meta", (_req, res) => {
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
     defaults: {
       exaggeration: defaultExaggeration,
-      speed: defaultSpeed,
       cfgWeight: defaultCfgWeight,
     },
     modelInfo: {
@@ -305,7 +303,6 @@ app.post("/api/audiobook/generate", async (req, res) => {
     audiobookLanguage,
     voiceSampleId,
     exaggeration,
-    speed,
     cfgWeight,
   } = req.body || {};
 
@@ -364,9 +361,8 @@ app.post("/api/audiobook/generate", async (req, res) => {
     listenerLanguage: normalizeLanguageCode(listenerLanguage || "en"),
     language: normalizeLanguageCode(audiobookLanguage || "pt-pt"),
     voiceSamplePath: resolvedVoiceSample?.path || "",
-    exaggeration: clampControlNumber(exaggeration, defaultExaggeration, 0.3, 0.85),
-    speed: clampControlNumber(speed, defaultSpeed, 0.85, 1.15),
-    cfgWeight: clampControlNumber(cfgWeight, defaultCfgWeight, 0.1, 1),
+    exaggeration: Number(exaggeration ?? defaultExaggeration),
+    cfgWeight: Number(cfgWeight ?? defaultCfgWeight),
   }).catch(async (error) => {
     const failedJob = jobs.get(id);
     if (!failedJob) {
@@ -446,12 +442,9 @@ async function runGenerationJob(config) {
   job.status = "running";
   job.progress = 5;
   job.logs.push("Preparing Chatterbox generation.");
-  job.logs.push(`Calibration set to emotion ${config.exaggeration.toFixed(2)} and speed ${config.speed.toFixed(2)}x.`);
   job.sourceLanguage = config.sourceLanguage;
   job.listenerLanguage = config.listenerLanguage;
   job.audiobookLanguage = config.language;
-  job.exaggeration = config.exaggeration;
-  job.speed = config.speed;
   await persistJob(config.jobId, job);
 
   let effectiveInputTextPath = config.inputTextPath;
@@ -514,8 +507,6 @@ async function runGenerationJob(config) {
     normalizeNarrationModelLanguage(config.language),
     "--exaggeration",
     String(config.exaggeration),
-    "--speed",
-    String(config.speed),
     "--cfg-weight",
     String(config.cfgWeight),
   ];
@@ -567,12 +558,6 @@ async function persistJob(id, job) {
   const dir = path.join(jobsDir, id);
   await fsp.mkdir(dir, { recursive: true });
   await fsp.writeFile(path.join(dir, "job.json"), JSON.stringify(job, null, 2));
-}
-
-function clampControlNumber(value, fallback, min, max) {
-  const parsed = Number(value);
-  const safeValue = Number.isFinite(parsed) ? parsed : fallback;
-  return Math.min(max, Math.max(min, safeValue));
 }
 
 async function runPythonJson(scriptRelativePath, args = []) {

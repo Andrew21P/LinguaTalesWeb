@@ -124,38 +124,6 @@
                 <audio id="voice-preview" controls hidden></audio>
               </div>
 
-              <div class="calibration-card">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Temporary tuning</p>
-                    <h3>Calibrate narration</h3>
-                  </div>
-                  <span class="soft-pill">For testing</span>
-                </div>
-                <p class="recording-note">
-                  These controls are temporary so we can find the perfect fixed defaults later. Emotion changes expressiveness. Speed changes the generated narration tempo.
-                </p>
-                <div class="tuning-grid">
-                  <label class="field tuning-field">
-                    <span>Emotion</span>
-                    <div class="tuning-inputs">
-                      <input id="emotion-control" type="range" min="0.30" max="0.85" step="0.01" />
-                      <input id="emotion-number" type="number" min="0.30" max="0.85" step="0.01" />
-                    </div>
-                    <small class="tuning-note">Higher values push more emphasis and drama.</small>
-                  </label>
-
-                  <label class="field tuning-field">
-                    <span>Speed</span>
-                    <div class="tuning-inputs">
-                      <input id="speed-control" type="range" min="0.85" max="1.15" step="0.01" />
-                      <input id="speed-number" type="number" min="0.85" max="1.15" step="0.01" />
-                    </div>
-                    <small class="tuning-note">1.00 is neutral. Lower is calmer. Higher is quicker.</small>
-                  </label>
-                </div>
-              </div>
-
               <button id="generate-button" class="primary-button glow-button" type="button">Create the audiobook</button>
 
               <div id="generation-status" class="generation-status hidden">
