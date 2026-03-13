@@ -81,7 +81,7 @@ Optional variables:
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
-- `DEFAULT_EXAGGERATION=0.54` if you want to tune the fixed narration expressiveness default
+- `DEFAULT_EXAGGERATION=0.58` if you want to tune the fixed narration expressiveness default
 
 ### 4. Run the app
 

@@ -29,7 +29,7 @@ const state = {
   readerScrollLockedUntil: 0,
   selectionTranslateTimer: 0,
   lastSelectionText: "",
-  defaultExaggeration: 0.54,
+  defaultExaggeration: 0.58,
 };
 
 const voicePromptHints = {
@@ -85,7 +85,7 @@ bootstrap().catch((error) => {
 async function bootstrap() {
   const meta = await fetchJson("/api/meta");
   state.voiceSamples = meta.voiceSamples;
-  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.54;
+  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.58;
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
