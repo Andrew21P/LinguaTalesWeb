@@ -36,7 +36,7 @@ def main() -> None:
     try:
         import torch
         import torchaudio as ta
-        from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+        from chatterbox import mtl_tts as cb_mtl
     except ImportError:
         if can_use_say_fallback():
             generate_with_say_fallback(args, chunks, output_path)
@@ -47,8 +47,9 @@ def main() -> None:
             "Chatterbox is not installed yet. Install the optional stack from scripts/requirements-chatterbox.txt on Linux or Apple Silicon, or use macOS for the built-in demo fallback."
         )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    device = resolve_device(torch)
+    print(f"PROGRESS:12|Using the official Chatterbox multilingual model on {device}.", flush=True)
+    model = load_multilingual_model(cb_mtl, torch, device)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
@@ -64,6 +65,8 @@ def main() -> None:
                 "cfg_weight": args.cfg_weight,
             }
             if args.voice_sample:
+                if index == 0:
+                    print("PROGRESS:14|Applying your uploaded voice sample as the prompt voice.", flush=True)
                 kwargs["audio_prompt_path"] = args.voice_sample
 
             wav = model.generate(chunk, **kwargs)
@@ -75,6 +78,65 @@ def main() -> None:
         combine_wavs(part_paths, output_path)
 
     print("PROGRESS:100|Audiobook finished.", flush=True)
+
+
+def resolve_device(torch_module) -> str:
+    if torch_module.cuda.is_available():
+        return "cuda"
+    if getattr(torch_module.backends, "mps", None) and torch_module.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def load_multilingual_model(cb_mtl, torch_module, device: str):
+    ckpt_dir = Path(
+        cb_mtl.snapshot_download(
+            repo_id=cb_mtl.REPO_ID,
+            repo_type="model",
+            revision="main",
+            allow_patterns=[
+                "ve.pt",
+                "t3_mtl23ls_v2.safetensors",
+                "s3gen.pt",
+                "grapheme_mtl_merged_expanded_v1.json",
+                "conds.pt",
+                "Cangjie5_TC.json",
+            ],
+            token=os.getenv("HF_TOKEN"),
+        )
+    )
+
+    # The official multilingual loader currently deserializes checkpoints without
+    # a map_location, which crashes on Apple Silicon / CPU-only hosts when the
+    # checkpoint tensors are tagged for CUDA. Load on CPU first, then move.
+    map_location = torch_module.device("cpu") if device != "cuda" else None
+
+    ve = cb_mtl.VoiceEncoder()
+    ve.load_state_dict(
+        torch_module.load(ckpt_dir / "ve.pt", map_location=map_location, weights_only=True)
+    )
+    ve.to(device).eval()
+
+    t3 = cb_mtl.T3(cb_mtl.T3Config.multilingual())
+    t3_state = cb_mtl.load_safetensors(ckpt_dir / "t3_mtl23ls_v2.safetensors")
+    if "model" in t3_state.keys():
+        t3_state = t3_state["model"][0]
+    t3.load_state_dict(t3_state)
+    t3.to(device).eval()
+
+    s3gen = cb_mtl.S3Gen()
+    s3gen.load_state_dict(
+        torch_module.load(ckpt_dir / "s3gen.pt", map_location=map_location, weights_only=True)
+    )
+    s3gen.to(device).eval()
+
+    tokenizer = cb_mtl.MTLTokenizer(str(ckpt_dir / "grapheme_mtl_merged_expanded_v1.json"))
+
+    conds = None
+    if (builtin_voice := ckpt_dir / "conds.pt").exists():
+        conds = cb_mtl.Conditionals.load(builtin_voice, map_location=map_location).to(device)
+
+    return cb_mtl.ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, device, conds=conds)
 
 
 def split_text(text: str, max_chars: int = 900) -> list[str]:
@@ -165,9 +227,7 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
 
 
 def can_use_say_fallback() -> bool:
-    if os.getenv("LINGUATALES_DISABLE_SAY_FALLBACK") == "1":
-        return False
-    return os.uname().sysname == "Darwin" and shutil.which("say") is not None
+    return os.getenv("LINGUATALES_ENABLE_SAY_FALLBACK") == "1" and os.uname().sysname == "Darwin" and shutil.which("say") is not None
 
 
 def generate_with_say_fallback(args: argparse.Namespace, chunks: list[str], output_path: Path) -> None:

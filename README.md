@@ -53,6 +53,7 @@ Notes:
 - `chatterbox-tts` may download model weights the first time you generate audio.
 - CPU mode works, but a CUDA GPU is much better for long books.
 - `ffmpeg` must be available on your `PATH`.
+- Browser-recorded voice prompts are normalized to mono `wav` automatically before cloning so Chatterbox gets a stable prompt format.
 
 Optional Chatterbox install:
 
@@ -62,8 +63,9 @@ pip install -r scripts/requirements-chatterbox.txt
 
 Platform note:
 
-- On Intel macOS, official PyTorch wheels do not currently line up with the Chatterbox package pins, so LinguaTales automatically falls back to the built-in macOS `say` voices for local UX testing.
-- For real Chatterbox generation, use Linux or Apple Silicon and point `PYTHON_BIN` at that compatible environment.
+- On Apple Silicon Macs, make sure your Python itself is arm64 as well. If your shell is arm64 but your Python comes from an old `/usr/local` x86 Homebrew install, Chatterbox will still fail.
+- The project works well with an arm64 Python 3.11 environment and `PYTHON_BIN` pointed at that interpreter.
+- `LINGUATALES_ENABLE_SAY_FALLBACK=0` by default now, so the app will not silently fake narration with macOS voices when Chatterbox is unavailable.
 
 ### 3. Configure environment
 

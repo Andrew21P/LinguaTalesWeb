@@ -146,13 +146,12 @@ app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => 
     });
   }
 
-  const safeExt = extensionForMime(req.file.mimetype, req.file.originalname);
   const id = crypto.randomUUID();
-  const fileName = `${id}${safeExt}`;
+  const fileName = `${id}.wav`;
   const finalPath = path.join(voicesDir, fileName);
   const metadataPath = path.join(voicesDir, `${id}.json`);
 
-  await fsp.rename(req.file.path, finalPath);
+  await transcodeVoiceSampleToWav(req.file.path, finalPath);
 
   const voiceSample = {
     id,
@@ -183,7 +182,9 @@ app.post("/api/audiobook/generate", async (req, res) => {
     });
   }
 
-  const resolvedVoiceSample = resolveVoiceSample(voiceSampleId);
+  const resolvedVoiceSample = resolveVoiceSample(voiceSampleId)
+    ? await ensureVoiceSamplePrompt(resolveVoiceSample(voiceSampleId))
+    : null;
   if (voiceSampleId && !resolvedVoiceSample) {
     return res.status(400).json({
       ok: false,
@@ -340,8 +341,11 @@ async function runGenerationJob(config) {
         if (messageParts.length) {
           latestJob.logs.push(messageParts.join("|"));
         }
-      } else if (line) {
-        latestJob.logs.push(line);
+      } else {
+        const sanitizedLine = sanitizeJobLogLine(line);
+        if (sanitizedLine) {
+          latestJob.logs.push(sanitizedLine);
+        }
       }
 
       await persistJob(config.jobId, latestJob);
@@ -489,6 +493,100 @@ function extensionForMime(mime, originalName) {
     return ".m4a";
   }
   return ".bin";
+}
+
+function sanitizeJobLogLine(line) {
+  if (!line) {
+    return null;
+  }
+
+  const ignoredPatterns = [
+    /^Sampling:/,
+    /^Fetching \d+ files:/,
+    /^loaded PerthNet/,
+    /^\/Users\/.*FutureWarning:/,
+    /^\/Users\/.*return_dict_in_generate/,
+    /^\/Users\/.*torch\.backends\.cuda\.sdp_kernel/,
+    /^deprecate\(/,
+    /^warnings\.warn\(/,
+    /^self\.gen = func/,
+    /^LlamaModel is using/,
+    /^We detected that you are passing/,
+    /^WARNING:chatterbox\.models\.t3\.inference\.alignment_stream_analyzer:/,
+  ];
+
+  if (ignoredPatterns.some((pattern) => pattern.test(line))) {
+    return null;
+  }
+
+  return line;
+}
+
+async function transcodeVoiceSampleToWav(inputPath, outputPath) {
+  await runCommand("ffmpeg", [
+    "-y",
+    "-i",
+    inputPath,
+    "-ac",
+    "1",
+    "-ar",
+    "24000",
+    "-c:a",
+    "pcm_s16le",
+    outputPath,
+  ]);
+
+  await fsp.rm(inputPath, { force: true });
+}
+
+async function ensureVoiceSamplePrompt(voiceSample) {
+  if (!voiceSample?.path) {
+    return null;
+  }
+
+  if (path.extname(voiceSample.path).toLowerCase() === ".wav" && fs.existsSync(voiceSample.path)) {
+    return voiceSample;
+  }
+
+  const normalizedPath = path.join(voicesDir, `${voiceSample.id}.wav`);
+  await transcodeVoiceSampleToWav(voiceSample.path, normalizedPath);
+
+  const normalizedVoiceSample = {
+    ...voiceSample,
+    path: normalizedPath,
+    url: `/voices/${voiceSample.id}.wav`,
+  };
+
+  registerVoiceSample(normalizedVoiceSample);
+  await fsp.writeFile(
+    path.join(voicesDir, `${voiceSample.id}.json`),
+    JSON.stringify(normalizedVoiceSample, null, 2),
+    "utf8"
+  );
+
+  return normalizedVoiceSample;
+}
+
+async function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `${command} failed.`));
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 async function translateText({ text, source, target }) {
