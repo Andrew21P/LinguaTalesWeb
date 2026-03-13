@@ -44,6 +44,7 @@ const state = {
   pageStatusPoller: 0,
   pageStatusPollerBusy: false,
   readerTurnTimer: 0,
+  lastWarmWindowKey: "",
 };
 
 const voicePromptHints = {
@@ -778,6 +779,93 @@ function applyBookPage(book, page, options = {}) {
     startPageStatusPolling(book.id, page.index);
   } else {
     stopPageStatusPolling();
+  }
+
+  if (page.audioUrl) {
+    void warmUpcomingPagesFromCurrent();
+  }
+}
+
+async function warmUpcomingPagesFromCurrent() {
+  if (!state.currentBook?.id || !state.selectedVoice?.id) {
+    return;
+  }
+
+  const currentPage = state.currentBook.pages?.[state.currentPageIndex];
+  if (!currentPage?.ready) {
+    return;
+  }
+
+  const warmKey = `${state.currentBook.id}:${state.currentPageIndex}:${state.selectedVoice.id}`;
+  if (state.lastWarmWindowKey === warmKey) {
+    return;
+  }
+  state.lastWarmWindowKey = warmKey;
+
+  try {
+    await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}/prepare`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        voiceSampleId: state.selectedVoice.id,
+      }),
+    });
+  } catch {
+    return;
+  }
+
+  await refreshUpcomingPageStatuses(state.currentBook.id, state.currentPageIndex);
+  window.setTimeout(() => {
+    void refreshUpcomingPageStatuses(state.currentBook.id, state.currentPageIndex);
+  }, 1400);
+}
+
+async function refreshUpcomingPageStatuses(bookId, currentPageIndex, warmDepth = 3) {
+  if (!state.currentBook || state.currentBook.id !== bookId) {
+    return;
+  }
+
+  const indexes = [];
+  for (let offset = 1; offset <= warmDepth; offset += 1) {
+    const nextIndex = currentPageIndex + offset;
+    if (nextIndex >= (state.currentBook.pages || []).length) {
+      break;
+    }
+    indexes.push(nextIndex);
+  }
+
+  if (!indexes.length) {
+    return;
+  }
+
+  const pages = await Promise.all(
+    indexes.map((index) =>
+      fetchJson(`/api/books/${bookId}/pages/${index}`)
+        .then((payload) => payload.page)
+        .catch(() => null)
+    )
+  );
+
+  let changed = false;
+  pages.forEach((page) => {
+    if (!page) {
+      return;
+    }
+    const summaryPage = state.currentBook?.pages?.[page.index];
+    if (!summaryPage) {
+      return;
+    }
+    summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
+    summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
+    summaryPage.ready = Boolean(page.audioUrl);
+    summaryPage.preview = truncate(page.displayText || page.sourceText || "", 130);
+    changed = true;
+  });
+
+  if (changed) {
+    renderPageList();
   }
 }
 

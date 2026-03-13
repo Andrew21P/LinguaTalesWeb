@@ -2636,6 +2636,20 @@ async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleI
       voiceSampleId: requestedVoiceKey,
       prefetch,
     }).catch(() => {});
+  } else if (!prefetch) {
+    for (let offset = 1; offset <= readyPageWindow; offset += 1) {
+      const upcomingPageIndex = safePageIndex + offset;
+      if (upcomingPageIndex >= book.pages.length) {
+        break;
+      }
+
+      void startLibraryBookPagePreparation({
+        bookId,
+        pageIndex: upcomingPageIndex,
+        voiceSampleId: requestedVoiceKey,
+        prefetch: true,
+      }).catch(() => {});
+    }
   }
 
   book = (await readLibraryBook(bookId)) || book;
