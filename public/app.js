@@ -41,6 +41,8 @@ const state = {
   progressSaveTimer: 0,
   bookImporting: false,
   pagePreparing: false,
+  pageStatusPoller: 0,
+  pageStatusPollerBusy: false,
 };
 
 const voicePromptHints = {
@@ -228,6 +230,7 @@ async function handleLogout() {
     method: "POST",
   }).catch(() => {});
 
+  stopPageStatusPolling();
   state.authenticated = false;
   state.profile = null;
   state.libraryBooks = [];
@@ -718,17 +721,25 @@ function applyBookPage(book, page, options = {}) {
         `Translation: ${page.translationStatus || (needsTranslation ? "idle" : "source")}.`,
         `Audio: ${page.audioStatus || "idle"}.`,
       ];
-  updateGenerationUi({
-    label: page.audioUrl
-      ? "Audiobook page ready. Press Play."
+  const generationLabel =
+    page.audioUrl || page.translationStatus === "running" || page.audioStatus === "running"
+      ? buildGenerationLabelFromPage(page)
       : needsTranslation
         ? "This page is still in the original language. Click Generate audiobook to translate it and create the voice."
-        : "This page is ready to generate as an audiobook.",
-    progress: page.audioUrl ? 100 : 0,
+        : "This page is ready to generate as an audiobook.";
+  updateGenerationUi({
+    label: generationLabel,
+    progress: inferGenerationProgressFromPage(page),
     logs: generationLogs,
   });
   els.generationStatus.classList.remove("hidden");
   els.generateButton.textContent = page.audioUrl ? "Regenerate audiobook" : "Generate audiobook";
+
+  if ((page.translationStatus === "running" || page.audioStatus === "running") && !page.audioUrl) {
+    startPageStatusPolling(book.id, page.index);
+  } else {
+    stopPageStatusPolling();
+  }
 }
 
 function renderCurrentChapter() {
@@ -1070,6 +1081,8 @@ async function handlePrepareCurrentPage(options = {}) {
   }
 
   try {
+    const requestedBookId = state.currentBook.id;
+    const requestedPageIndex = state.currentPageIndex;
     state.pagePreparing = true;
     els.generateButton.disabled = true;
     els.generateButton.textContent = "Generating audiobook...";
@@ -1082,8 +1095,9 @@ async function handlePrepareCurrentPage(options = {}) {
         "If needed, Voxenor will translate first and then generate the narration.",
       ],
     });
+    startPageStatusPolling(requestedBookId, requestedPageIndex);
 
-    const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}/prepare`, {
+    const payload = await fetchJson(`/api/books/${requestedBookId}/pages/${requestedPageIndex}/prepare`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1093,6 +1107,7 @@ async function handlePrepareCurrentPage(options = {}) {
       }),
     });
 
+    stopPageStatusPolling();
     upsertLibraryBook(payload.book);
     state.currentBook = payload.book;
     renderLibraryBooks();
@@ -1103,6 +1118,7 @@ async function handlePrepareCurrentPage(options = {}) {
     setBookStatus(`Page ${payload.page.index + 1} is ready in "${payload.book.title}".`);
     await persistPreferences();
   } catch (error) {
+    stopPageStatusPolling();
     setBookStatus(error.message, true);
     updateGenerationUi({
       label: error.message,
@@ -1188,6 +1204,106 @@ function updateGenerationUi({ label, progress, logs }) {
   els.generationPercent.textContent = `${Math.round(progress)}%`;
   els.generationProgress.style.width = `${Math.max(0, Math.min(progress, 100))}%`;
   els.generationLog.innerHTML = logs.map((entry) => `<div>${escapeHtml(entry)}</div>`).join("");
+}
+
+function inferGenerationProgressFromPage(page) {
+  if (page.audioUrl) {
+    return 100;
+  }
+
+  const segmentLog =
+    page.audioStatus === "running"
+      ? [...(page.logs || [])].reverse().find((entry) => /Generating segment \d+ of \d+\./u.test(entry))
+      : "";
+  if (segmentLog) {
+    const match = segmentLog.match(/Generating segment (\d+) of (\d+)\./u);
+    if (match) {
+      const currentSegment = Number(match[1]);
+      const totalSegments = Number(match[2]);
+      if (totalSegments > 0) {
+        return 35 + (currentSegment / totalSegments) * 55;
+      }
+    }
+  }
+
+  if (page.audioStatus === "running") {
+    return 48;
+  }
+  if (page.translationStatus === "running") {
+    return 18;
+  }
+  if (page.translationStatus === "ready") {
+    return 30;
+  }
+  return 0;
+}
+
+function buildGenerationLabelFromPage(page) {
+  if (page.audioUrl) {
+    return "Audiobook page ready. Press Play.";
+  }
+  if (page.audioStatus === "running") {
+    return `Generating audiobook for page ${page.index + 1}...`;
+  }
+  if (page.translationStatus === "running") {
+    return `Translating page ${page.index + 1}...`;
+  }
+  if (page.translationStatus === "ready") {
+    return `Translation ready for page ${page.index + 1}.`;
+  }
+  return `Page ${page.index + 1} is waiting for generation.`;
+}
+
+function stopPageStatusPolling() {
+  if (state.pageStatusPoller) {
+    window.clearInterval(state.pageStatusPoller);
+    state.pageStatusPoller = 0;
+  }
+  state.pageStatusPollerBusy = false;
+}
+
+function startPageStatusPolling(bookId, pageIndex) {
+  stopPageStatusPolling();
+
+  const poll = async () => {
+    if (state.pageStatusPollerBusy) {
+      return;
+    }
+
+    state.pageStatusPollerBusy = true;
+    try {
+      const payload = await fetchJson(`/api/books/${bookId}/pages/${pageIndex}`);
+      const page = payload.page;
+      const summaryPage = state.currentBook?.pages?.[pageIndex];
+      if (summaryPage) {
+        summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
+        summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
+        summaryPage.ready = Boolean(page.audioUrl);
+      }
+
+      if (state.currentBook?.id === bookId && state.currentPageIndex === pageIndex) {
+        updateGenerationUi({
+          label: buildGenerationLabelFromPage(page),
+          progress: inferGenerationProgressFromPage(page),
+          logs: page.logs?.length ? page.logs : ["Waiting for generation logs..."],
+        });
+        renderPageList();
+      }
+
+      if (page.audioUrl) {
+        stopPageStatusPolling();
+      }
+    } catch {
+      // Keep polling quietly while the long-running prepare request is active.
+    } finally {
+      state.pageStatusPollerBusy = false;
+    }
+  };
+
+  void poll();
+  state.pageStatusPoller = window.setInterval(() => {
+    void poll();
+  }, 1400);
 }
 
 function startPlaybackTracking() {

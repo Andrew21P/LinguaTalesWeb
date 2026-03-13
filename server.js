@@ -2034,12 +2034,15 @@ function resolveLibraryAudioFilePath(bookId, audioUrl) {
 async function sanitizeLibraryBookState(book) {
   let changed = false;
   const needsTranslation = bookPageNeedsTranslation(book);
+  const generationLogPattern =
+    /Generating segment \d+ of \d+\.|Loading Chatterbox models\.|Applying your uploaded voice sample\.|Combining narration chunks\.|Audiobook finished\./u;
 
-  for (const page of book.pages || []) {
+  for (const [pageIndex, page] of (book.pages || []).entries()) {
+    const pageTaskActive = [...bookPageTasks.keys()].some((taskKey) => taskKey.startsWith(`${book.id}:${pageIndex}:`));
     const audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
     const audioExists = audioPath ? fs.existsSync(audioPath) : false;
 
-    if (page.translationStatus === "running" && !page.translatedText?.trim()) {
+    if (page.translationStatus === "running" && !page.translatedText?.trim() && !pageTaskActive) {
       page.translationStatus = needsTranslation ? "idle" : "source";
       changed = true;
     }
@@ -2073,11 +2076,17 @@ async function sanitizeLibraryBookState(book) {
         page.logs = [...(page.logs || []).slice(-6), "Reset an out-of-sync page so you can generate it again cleanly."];
       }
       changed = true;
-    } else if (page.audioStatus === "running" && !page.audioUrl) {
+    } else if (page.audioStatus === "running" && !page.audioUrl && !pageTaskActive) {
       page.audioStatus = "idle";
       changed = true;
     } else if (page.audioUrl && page.audioStatus !== "ready") {
       page.audioStatus = "ready";
+      changed = true;
+    }
+
+    if (!pageTaskActive && !page.audioUrl && (page.logs || []).some((entry) => generationLogPattern.test(entry))) {
+      const cleanedLogs = (page.logs || []).filter((entry) => !generationLogPattern.test(entry)).slice(-4);
+      page.logs = [...cleanedLogs, "Previous generation stopped before finishing. Click Generate audiobook to retry."];
       changed = true;
     }
   }
