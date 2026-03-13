@@ -1588,6 +1588,24 @@ async function fetchJson(url, options) {
   return payload;
 }
 
+function normalizeLanguageCode(language) {
+  const code = String(language || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("_", "-");
+
+  if (!code || code === "auto") {
+    return "auto";
+  }
+  if (code === "pt-br" || code === "pt-pt") {
+    return code;
+  }
+  if (code === "pt") {
+    return "pt";
+  }
+  return code.split("-")[0];
+}
+
 function truncate(value, maxLength) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
