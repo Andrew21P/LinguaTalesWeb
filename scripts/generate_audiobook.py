@@ -125,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metadata-output", default="")
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
-    parser.add_argument("--exaggeration", type=float, default=0.58)
+    parser.add_argument("--exaggeration", type=float, default=0.54)
     parser.add_argument("--cfg-weight", type=float, default=0.32)
     return parser.parse_args()
 

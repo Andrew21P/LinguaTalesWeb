@@ -15,7 +15,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
-const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.58);
+const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.54);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 
 const rootDir = __dirname;
