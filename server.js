@@ -15,7 +15,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
-const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.48);
+const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.54);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 
 const rootDir = __dirname;
@@ -43,7 +43,8 @@ const voiceRegistry = new Map();
 
 const sourceLanguageCatalog = [
   { code: "auto", label: "Auto Detect" },
-  { code: "pt", label: "Portuguese" },
+  { code: "pt-pt", label: "Portuguese (Portugal)" },
+  { code: "pt-br", label: "Portuguese (Brazil)" },
   { code: "en", label: "English" },
   { code: "es", label: "Spanish" },
   { code: "fr", label: "French" },
@@ -58,16 +59,113 @@ const sourceLanguageCatalog = [
 ];
 
 const listenerLanguageCatalog = sourceLanguageCatalog.filter((language) => language.code !== "auto");
-const audiobookLanguageCatalog = [{ code: "pt", locale: "pt-PT", label: "Portuguese (Portugal)" }];
+const audiobookLanguageCatalog = [{ code: "pt-pt", locale: "pt-PT", label: "Portuguese (Portugal)" }];
 
 const builtInVoiceSamples = [
   {
     id: "storybook",
     name: "Lusophone Studio",
-    language: "pt",
+    language: "pt-pt",
     vibe: "Portuguese (Portugal) narrator profile",
     builtIn: true,
   },
+];
+
+const portuguesePortugalLexicon = [
+  ["faixa de pedestres", "passadeira"],
+  ["telefone celular", "telemóvel"],
+  ["telefones celulares", "telemóveis"],
+  ["carteira de motorista", "carta de condução"],
+  ["carteiras de motorista", "cartas de condução"],
+  ["banheiro", "casa de banho"],
+  ["banheiros", "casas de banho"],
+  ["garota", "rapariga"],
+  ["garotas", "raparigas"],
+  ["garoto", "rapaz"],
+  ["garotos", "rapazes"],
+  ["menina", "rapariga"],
+  ["meninas", "raparigas"],
+  ["menino", "rapaz"],
+  ["meninos", "rapazes"],
+  ["ônibus", "autocarro"],
+  ["onibus", "autocarro"],
+  ["ônibus escolar", "autocarro escolar"],
+  ["onibus escolar", "autocarro escolar"],
+  ["trem", "comboio"],
+  ["trens", "comboios"],
+  ["celular", "telemóvel"],
+  ["celulares", "telemóveis"],
+  ["suco", "sumo"],
+  ["sucos", "sumos"],
+  ["sorvete", "gelado"],
+  ["sorvetes", "gelados"],
+  ["xícara", "chávena"],
+  ["xicara", "chávena"],
+  ["xícaras", "chávenas"],
+  ["xicaras", "chávenas"],
+  ["açougue", "talho"],
+  ["acougue", "talho"],
+  ["açougues", "talhos"],
+  ["acougues", "talhos"],
+  ["time", "equipa"],
+  ["times", "equipas"],
+  ["moça", "rapariga"],
+  ["moço", "rapaz"],
+  ["moças", "raparigas"],
+  ["moços", "rapazes"],
+];
+
+const portuguesePortugalPossessiveNouns = [
+  "amiga",
+  "amigas",
+  "amigo",
+  "amigos",
+  "autocarro",
+  "autocarros",
+  "casa",
+  "casa de banho",
+  "casas",
+  "casas de banho",
+  "chavena",
+  "chavenas",
+  "comboio",
+  "comboios",
+  "equipa",
+  "equipas",
+  "família",
+  "famílias",
+  "filha",
+  "filhas",
+  "filho",
+  "filhos",
+  "gelado",
+  "gelados",
+  "irmã",
+  "irmão",
+  "irmãos",
+  "irmãs",
+  "mãe",
+  "mães",
+  "marido",
+  "maridos",
+  "nome",
+  "nomes",
+  "pai",
+  "pais",
+  "rapariga",
+  "raparigas",
+  "rapaz",
+  "rapazes",
+  "sumo",
+  "sumos",
+  "talho",
+  "talhos",
+  "telemóvel",
+  "telemóveis",
+  "vida",
+  "vidas",
+  "voz",
+  "vozes",
 ];
 
 loadVoiceRegistry();
@@ -91,7 +189,7 @@ app.get("/api/meta", (_req, res) => {
     },
     modelInfo: {
       active: "Chatterbox Multilingual",
-      note: "Fully supported today for Portuguese (Portugal) narration, with translation and OCR helping broader source-language coverage.",
+      note: "Portuguese (Portugal) narration is the fully supported output today, with OCR, source-language detection, and PT-BR to PT-PT phrasing normalization in the pipeline.",
     },
   });
 });
@@ -180,7 +278,7 @@ app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => 
   const voiceSample = {
     id,
     name: req.body.name?.trim() || "My Voice Sample",
-    language: req.body.language?.trim() || "pt",
+    language: normalizeLanguageCode(req.body.language?.trim() || "pt-pt"),
     url: `/voices/${fileName}`,
     path: finalPath,
     builtIn: false,
@@ -261,7 +359,7 @@ app.post("/api/audiobook/generate", async (req, res) => {
     metadataPath,
     sourceLanguage: normalizeLanguageCode(sourceLanguage || "auto"),
     listenerLanguage: normalizeLanguageCode(listenerLanguage || "en"),
-    language: normalizeLanguageCode(audiobookLanguage || "pt"),
+    language: normalizeLanguageCode(audiobookLanguage || "pt-pt"),
     voiceSamplePath: resolvedVoiceSample?.path || "",
     exaggeration: Number(exaggeration ?? defaultExaggeration),
     cfgWeight: Number(cfgWeight ?? defaultCfgWeight),
@@ -351,16 +449,22 @@ async function runGenerationJob(config) {
 
   let effectiveInputTextPath = config.inputTextPath;
   const originalText = await fsp.readFile(config.inputTextPath, "utf8");
+  let workingText = originalText;
 
-  if (config.sourceLanguage && config.sourceLanguage !== "auto" && config.sourceLanguage !== config.language) {
+  if (
+    config.sourceLanguage &&
+    config.sourceLanguage !== "auto" &&
+    normalizeTranslationProviderLanguage(config.sourceLanguage) !==
+      normalizeTranslationProviderLanguage(config.language)
+  ) {
     job.logs.push(
       `Translating the book from ${config.sourceLanguage.toUpperCase()} to ${config.language.toUpperCase()} before narration.`
     );
     job.progress = 8;
     await persistJob(config.jobId, job);
 
-    const translatedText = await translateLongText({
-      text: originalText,
+    workingText = await translateLongText({
+      text: workingText,
       source: config.sourceLanguage,
       target: config.language,
       onProgress: async ({ percent, message }) => {
@@ -373,20 +477,23 @@ async function runGenerationJob(config) {
         await persistJob(config.jobId, latestJob);
       },
     });
-
-    const translatedTextPath = path.join(path.dirname(config.inputTextPath), "book.translated.txt");
-    await fsp.writeFile(translatedTextPath, translatedText, "utf8");
-    effectiveInputTextPath = translatedTextPath;
-    job.readerText = translatedText;
-    job.readerChapters = splitIntoChapters(translatedText);
-    job.readerLanguage = config.language;
-    await persistJob(config.jobId, job);
-  } else {
-    job.readerText = originalText;
-    job.readerChapters = splitIntoChapters(originalText);
-    job.readerLanguage = config.sourceLanguage === "auto" ? config.language : config.sourceLanguage;
-    await persistJob(config.jobId, job);
   }
+
+  if (config.language === "pt-pt") {
+    job.logs.push("Normalizing Portuguese phrasing toward PT-PT before narration.");
+    workingText = normalizePortugueseForPortugal(workingText, config.sourceLanguage);
+  }
+
+  if (workingText !== originalText) {
+    const normalizedTextPath = path.join(path.dirname(config.inputTextPath), "book.normalized.txt");
+    await fsp.writeFile(normalizedTextPath, workingText, "utf8");
+    effectiveInputTextPath = normalizedTextPath;
+  }
+
+  job.readerText = workingText;
+  job.readerChapters = splitIntoChapters(workingText);
+  job.readerLanguage = config.language;
+  await persistJob(config.jobId, job);
 
   const args = [
     path.join(rootDir, "scripts", "generate_audiobook.py"),
@@ -397,7 +504,7 @@ async function runGenerationJob(config) {
     "--metadata-output",
     config.metadataPath,
     "--language",
-    config.language,
+    normalizeNarrationModelLanguage(config.language),
     "--exaggeration",
     String(config.exaggeration),
     "--cfg-weight",
@@ -548,10 +655,29 @@ function normalizeLanguageCode(language) {
   if (!code || code === "auto") {
     return "auto";
   }
-  if (code.startsWith("pt")) {
+  if (code === "pt-br" || code === "pt-pt") {
+    return code;
+  }
+  if (code === "pt") {
     return "pt";
   }
   return code.split("-")[0];
+}
+
+function normalizeNarrationModelLanguage(language) {
+  const code = normalizeLanguageCode(language);
+  if (code === "pt-br" || code === "pt-pt" || code === "pt") {
+    return "pt";
+  }
+  return code;
+}
+
+function normalizeTranslationProviderLanguage(language) {
+  const code = normalizeLanguageCode(language);
+  if (code === "pt-br" || code === "pt-pt") {
+    return "pt";
+  }
+  return code;
 }
 
 function splitIntoChapters(text) {
@@ -630,7 +756,14 @@ async function transcodeVoiceSampleToWav(inputPath, outputPath) {
     "-i",
     inputPath,
     "-af",
-    "silenceremove=start_periods=1:start_silence=0.2:start_threshold=-40dB:stop_periods=-1:stop_silence=0.25:stop_threshold=-40dB",
+    [
+      "silenceremove=start_periods=1:start_silence=0.2:start_threshold=-40dB:stop_periods=-1:stop_silence=0.25:stop_threshold=-40dB",
+      "highpass=f=65",
+      "lowpass=f=14200",
+      "afftdn=nr=10:nf=-32",
+      "acompressor=threshold=-19dB:ratio=2.0:attack=8:release=75:makeup=1.5",
+      "alimiter=limit=0.96",
+    ].join(","),
     "-ac",
     "1",
     "-ar",
@@ -694,8 +827,8 @@ async function runCommand(command, args) {
 }
 
 async function translateText({ text, source, target }) {
-  const normalizedSource = normalizeLanguageCode(source || "auto");
-  const normalizedTarget = normalizeLanguageCode(target || "pt");
+  const normalizedSource = normalizeTranslationProviderLanguage(source || "auto");
+  const normalizedTarget = normalizeTranslationProviderLanguage(target || "pt-pt");
 
   const libretranslateUrl = process.env.LIBRETRANSLATE_URL;
   const libretranslateKey = process.env.LIBRETRANSLATE_API_KEY;
@@ -758,8 +891,8 @@ async function translateText({ text, source, target }) {
 
 async function translateLongText({ text, source, target, onProgress }) {
   const normalizedText = normalizeText(text);
-  const normalizedSource = normalizeLanguageCode(source);
-  const normalizedTarget = normalizeLanguageCode(target);
+  const normalizedSource = normalizeTranslationProviderLanguage(source);
+  const normalizedTarget = normalizeTranslationProviderLanguage(target);
   if (!normalizedText || normalizedSource === normalizedTarget) {
     return normalizedText;
   }
@@ -834,6 +967,101 @@ function chunkTextForTranslation(text, maxChunkLength = 420) {
   return chunks.length ? chunks : [normalizeText(text)];
 }
 
+function normalizePortugueseForPortugal(text, sourceLanguage = "auto") {
+  const normalizedSource = normalizeLanguageCode(sourceLanguage);
+  if (!text?.trim()) {
+    return "";
+  }
+
+  let normalized = normalizeText(text);
+  if (normalizedSource === "pt-pt") {
+    return normalized;
+  }
+
+  const orderedLexicon = [...portuguesePortugalLexicon].sort((left, right) => right[0].length - left[0].length);
+  for (const [sourceTerm, targetTerm] of orderedLexicon) {
+    normalized = replaceWholePhrase(normalized, sourceTerm, targetTerm);
+  }
+
+  normalized = injectPortuguesePossessiveArticles(normalized);
+  normalized = normalized
+    .replace(/\btelemovel\b/giu, (match) => applySourceCasing(match, "telemóvel"))
+    .replace(/\btelemoveis\b/giu, (match) => applySourceCasing(match, "telemóveis"))
+    .replace(/\bchavena\b/giu, (match) => applySourceCasing(match, "chávena"))
+    .replace(/\bchavenas\b/giu, (match) => applySourceCasing(match, "chávenas"))
+    .replace(/\bconducao\b/giu, (match) => applySourceCasing(match, "condução"))
+    .replace(/\bfamilia\b/giu, (match) => applySourceCasing(match, "família"))
+    .replace(/\birma\b/giu, (match) => applySourceCasing(match, "irmã"))
+    .replace(/\birmas\b/giu, (match) => applySourceCasing(match, "irmãs"))
+    .replace(/\bmae\b/giu, (match) => applySourceCasing(match, "mãe"))
+    .replace(/\bmaes\b/giu, (match) => applySourceCasing(match, "mães"))
+    .replace(/\bnumero\b/giu, (match) => applySourceCasing(match, "número"));
+
+  return normalized
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function replaceWholePhrase(text, sourceTerm, targetTerm) {
+  const pattern = new RegExp(
+    `(?<![\\p{L}\\p{M}\\p{N}])${escapeRegex(sourceTerm).replaceAll(" ", "\\s+")}(?![\\p{L}\\p{M}\\p{N}])`,
+    "giu"
+  );
+  return text.replace(pattern, (match) => applySourceCasing(match, targetTerm));
+}
+
+function injectPortuguesePossessiveArticles(text) {
+  const nounPattern = portuguesePortugalPossessiveNouns
+    .sort((left, right) => right.length - left.length)
+    .map((noun) => escapeRegex(noun).replaceAll(" ", "\\s+"))
+    .join("|");
+  const possessivePattern = new RegExp(
+    `(?<![\\p{L}\\p{M}\\p{N}])(seu|sua|seus|suas)\\s+(${nounPattern})(?![\\p{L}\\p{M}\\p{N}])`,
+    "giu"
+  );
+
+  return text.replace(possessivePattern, (match, pronoun, noun, offset, fullText) => {
+    const before = fullText.slice(Math.max(0, offset - 8), offset).toLowerCase();
+    if (
+      /\b(?:a|o|as|os|ao|aos|à|às|do|da|dos|das|no|na|nos|nas|dum|duma|duns|dumas|pelo|pela|pelos|pelas)\s$/u.test(
+        before
+      )
+    ) {
+      return match;
+    }
+
+    const articleMap = {
+      seu: "o",
+      seus: "os",
+      sua: "a",
+      suas: "as",
+    };
+    const article = applySourceCasing(pronoun, articleMap[pronoun.toLowerCase()] || "o");
+    const normalizedPronoun =
+      /^[A-ZÀ-Ý][a-zà-ÿ]/u.test(pronoun) && article !== article.toLowerCase() ? pronoun.toLowerCase() : pronoun;
+    return `${article} ${normalizedPronoun} ${noun}`;
+  });
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applySourceCasing(source, replacement) {
+  const letters = [...String(source)].filter((character) => /\p{L}/u.test(character)).join("");
+  if (letters.length > 1 && letters === letters.toUpperCase()) {
+    return replacement.toUpperCase();
+  }
+  if (letters && letters.slice(0, 1) === letters.slice(0, 1).toUpperCase()) {
+    return replacement.slice(0, 1).toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
 function loadVoiceRegistry() {
   if (!fs.existsSync(voicesDir)) {
     return;
@@ -853,7 +1081,11 @@ function loadVoiceRegistry() {
 }
 
 function registerVoiceSample(voiceSample) {
-  voiceRegistry.set(voiceSample.id, voiceSample);
+  const normalizedLanguage = normalizeLanguageCode(voiceSample.language || "pt-pt");
+  voiceRegistry.set(voiceSample.id, {
+    ...voiceSample,
+    language: normalizedLanguage === "pt" ? "pt-pt" : normalizedLanguage,
+  });
 }
 
 function resolveVoiceSample(voiceSampleId) {

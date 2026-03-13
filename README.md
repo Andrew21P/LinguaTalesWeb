@@ -15,10 +15,10 @@ LinguaTales is a local-first audiobook web app: paste text or upload a `PDF`, `E
 - Text paste, `PDF`, `EPUB`, `TXT`, and image ingestion
 - OCR for scanned pages and book photos with free local tooling
 - In-browser voice recording and audio sample upload
-- PT-PT-first audiobook generation pipeline with source-language detection and optional translation before narration
+- PT-PT-first audiobook generation pipeline with source-language detection, optional translation, and PT-BR to PT-PT phrasing normalization before narration
 - Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation
-- Audio mastering after synthesis for a cleaner final export
+- Audio mastering after synthesis for a cleaner, crisper final export
 - Localhost friendly and simple to deploy on a Hetzner VM
 
 ## Repository guide
@@ -81,7 +81,7 @@ Optional variables:
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
-- `DEFAULT_EXAGGERATION=0.48` if you want to tune the fixed narration expressiveness default
+- `DEFAULT_EXAGGERATION=0.54` if you want to tune the fixed narration expressiveness default
 
 ### 4. Run the app
 
@@ -106,7 +106,7 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 ## Language support
 
 - Fully supported narration target right now: `Portuguese (Portugal)`.
-- Books can still come from other languages. The app can detect the source language and translate the text into PT before narration.
+- Books can still come from other languages. The app can detect the source language, translate into Portuguese when needed, and normalize PT-BR phrasing toward PT-PT before narration.
 - The listener language is separate from the audiobook language so inline translations can stay personalized.
 
 ## Notes about translation

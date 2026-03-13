@@ -11,8 +11,8 @@ const state = {
   bookLanguage: "auto",
   detectedBookLanguage: "pt",
   listenerLanguage: "en",
-  audiobookLanguage: "pt",
-  readerLanguage: "pt",
+  audiobookLanguage: "pt-pt",
+  readerLanguage: "pt-pt",
   selectedVoice: null,
   voiceSamples: [],
   customVoice: null,
@@ -29,11 +29,12 @@ const state = {
   readerScrollLockedUntil: 0,
   selectionTranslateTimer: 0,
   lastSelectionText: "",
-  defaultExaggeration: 0.48,
+  defaultExaggeration: 0.54,
 };
 
 const voicePromptHints = {
-  pt: "O senhor tinha número quatro, mas a senhora tinha tempo e cuidado. Hoje leio com presença, calor e clareza natural.",
+  "pt-pt":
+    "O Senhor tinha três portas no número quatro, e os vizinhos tinham tempo para ouvir tudo com calma, clareza e presença natural.",
 };
 
 const els = {
@@ -84,7 +85,7 @@ bootstrap().catch((error) => {
 async function bootstrap() {
   const meta = await fetchJson("/api/meta");
   state.voiceSamples = meta.voiceSamples;
-  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.48;
+  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.54;
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
@@ -174,6 +175,7 @@ function renderLanguageOptions(meta) {
   for (const language of [...sourceLanguages, ...listenerLanguages, ...audiobookLanguages]) {
     languageLabels.set(language.code, language.label);
   }
+  languageLabels.set("pt", "Portuguese");
 
   populateSelect(els.bookLanguage, sourceLanguages);
   populateSelect(els.listenerLanguage, listenerLanguages);
@@ -181,7 +183,7 @@ function renderLanguageOptions(meta) {
 
   els.bookLanguage.value = "auto";
   els.listenerLanguage.value = "en";
-  els.audiobookLanguage.value = "pt";
+  els.audiobookLanguage.value = "pt-pt";
   updateLanguagePills();
 }
 
@@ -201,7 +203,7 @@ function renderSupportedLanguages(languages) {
       (language) => `
         <div class="support-item">
           <strong>${escapeHtml(language.label)}</strong>
-          <span>Voice cloning, synced reading, translation workflow, and OCR intake.</span>
+          <span>Voice cloning, aligned reading, OCR intake, and PT-BR to PT-PT phrasing cleanup before narration.</span>
         </div>
       `
     )
@@ -792,10 +794,10 @@ function handleReaderManualScroll() {
 function updateLanguagePills() {
   const chosenBookLanguage =
     els.bookLanguage.value === "auto"
-      ? `${languageLabels.get(state.detectedBookLanguage) || state.detectedBookLanguage} detected`
-      : languageLabels.get(els.bookLanguage.value) || els.bookLanguage.value;
-  const audiobookLabel = "Portuguese (Portugal)";
-  const listenerLabel = languageLabels.get(els.listenerLanguage.value) || els.listenerLanguage.value;
+      ? `${getLanguageLabel(state.detectedBookLanguage)} detected`
+      : getLanguageLabel(els.bookLanguage.value);
+  const audiobookLabel = getLanguageLabel(els.audiobookLanguage.value);
+  const listenerLabel = getLanguageLabel(els.listenerLanguage.value);
 
   els.activeLanguagePill.textContent = `Book: ${chosenBookLanguage}`;
   els.translationLanguagePill.textContent = `Audio: ${audiobookLabel}`;
@@ -812,6 +814,10 @@ function updateVoicePromptHint() {
   els.voiceScriptText.textContent =
     voicePromptHints[language] ||
     "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
+}
+
+function getLanguageLabel(code) {
+  return languageLabels.get(code) || String(code || "").toUpperCase();
 }
 
 function computeChapterWordMetrics() {

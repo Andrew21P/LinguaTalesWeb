@@ -16,13 +16,14 @@ WORD_PATTERN = re.compile(r"[\wºª]+(?:[-'’][\wºª]+)*", re.UNICODE)
 MASTERING_FILTER_CHAIN = ",".join(
     [
         "highpass=f=55",
-        "lowpass=f=13500",
-        "equalizer=f=2300:t=q:w=1.1:g=1.6",
-        "equalizer=f=5200:t=q:w=1.2:g=1.1",
-        "acompressor=threshold=-19dB:ratio=2.2:attack=12:release=90:makeup=2.2",
-        "speechnorm=e=6.5:r=0.0008:l=1",
-        "loudnorm=I=-16:LRA=10:TP=-1.5",
-        "alimiter=limit=0.95",
+        "lowpass=f=15000",
+        "equalizer=f=180:t=q:w=0.9:g=0.5",
+        "equalizer=f=2400:t=q:w=1.1:g=1.8",
+        "equalizer=f=5400:t=q:w=1.2:g=1.5",
+        "deesser=i=0.12:m=0.42:f=0.42:s=o",
+        "acompressor=threshold=-20dB:ratio=2.2:attack=10:release=82:makeup=2.1",
+        "speechnorm=e=6.7:r=0.0007:l=1",
+        "alimiter=limit=0.94",
     ]
 )
 
@@ -124,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metadata-output", default="")
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
-    parser.add_argument("--exaggeration", type=float, default=0.48)
+    parser.add_argument("--exaggeration", type=float, default=0.54)
     parser.add_argument("--cfg-weight", type=float, default=0.32)
     return parser.parse_args()
 
