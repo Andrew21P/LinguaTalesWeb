@@ -43,6 +43,7 @@ const state = {
   pagePreparing: false,
   pageStatusPoller: 0,
   pageStatusPollerBusy: false,
+  readerTurnTimer: 0,
 };
 
 const voicePromptHints = {
@@ -77,9 +78,14 @@ const els = {
   profileDetails: document.querySelector("#profile-details"),
   networkList: document.querySelector("#network-list"),
   readerTitle: document.querySelector("#reader-title"),
+  readerPage: document.querySelector("#reader-page"),
   readerContent: document.querySelector("#reader-content"),
+  seekBackward: document.querySelector("#seek-backward"),
+  seekForward: document.querySelector("#seek-forward"),
+  restartToggle: document.querySelector("#restart-toggle"),
   playToggle: document.querySelector("#play-toggle"),
   pauseToggle: document.querySelector("#pause-toggle"),
+  stopToggle: document.querySelector("#stop-toggle"),
   bookAudio: document.querySelector("#book-audio"),
   activeLanguagePill: document.querySelector("#active-language-pill"),
   translationLanguagePill: document.querySelector("#translation-language-pill"),
@@ -135,8 +141,12 @@ function attachEvents() {
   els.bookForm.addEventListener("submit", handleBookOpen);
   els.pagePrev.addEventListener("click", () => void openAdjacentPage(-1));
   els.pageNext.addEventListener("click", () => void openAdjacentPage(1));
+  els.seekBackward.addEventListener("click", () => seekCurrentAudio(-10));
+  els.seekForward.addEventListener("click", () => seekCurrentAudio(10));
+  els.restartToggle.addEventListener("click", handleRestartCurrentPage);
   els.playToggle.addEventListener("click", handlePlayToggle);
   els.pauseToggle.addEventListener("click", () => els.bookAudio.pause());
+  els.stopToggle.addEventListener("click", handleStopCurrentPage);
   els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
   els.bookAudio.addEventListener("timeupdate", scheduleProgressSave);
   els.bookAudio.addEventListener("play", startPlaybackTracking);
@@ -241,8 +251,7 @@ async function handleLogout() {
   els.bookAudio.pause();
   els.bookAudio.removeAttribute("src");
   els.bookAudio.load();
-  els.playToggle.disabled = true;
-  els.pauseToggle.disabled = true;
+  setTransportAvailability(false);
   renderLibraryBooks();
   renderPageList();
   renderCurrentChapter();
@@ -501,14 +510,14 @@ function renderLibraryBooks() {
   });
 }
 
-async function loadLibraryBook(bookId, pageIndex = 0) {
+async function loadLibraryBook(bookId, pageIndex = 0, options = {}) {
   const payload = await fetchJson(`/api/books/${bookId}`);
   state.currentBook = payload.book;
   state.currentPageIndex = pageIndex;
   upsertLibraryBook(payload.book);
   renderLibraryBooks();
   renderPageList();
-  await openBookPage(pageIndex, { autoPrepare: false });
+  await openBookPage(pageIndex, { autoPrepare: false, ...options });
 }
 
 async function handleDeleteBook(bookId) {
@@ -546,6 +555,7 @@ async function handleDeleteBook(bookId) {
         els.bookAudio.pause();
         els.bookAudio.removeAttribute("src");
         els.bookAudio.load();
+        setTransportAvailability(false);
         renderPageList();
         renderCurrentChapter();
         updateLanguagePills();
@@ -617,9 +627,10 @@ function renderPageList() {
       </span>
     `;
     button.addEventListener("click", () => {
+      const turnDirection = index > state.currentPageIndex ? "forward" : index < state.currentPageIndex ? "backward" : "";
       state.currentPageIndex = index;
       setActiveChapterButton(index);
-      void openBookPage(index);
+      void openBookPage(index, { turnDirection });
     });
 
     const removeButton = document.createElement("button");
@@ -681,13 +692,14 @@ function applyBookPage(book, page, options = {}) {
   computeChapterWordMetrics();
   els.readerTitle.textContent = `${book.title} · ${page.title || `Page ${page.index + 1}`}`;
   renderCurrentChapter();
+  els.readerContent.scrollTop = 0;
+  animatePageTurn(options.turnDirection || "");
   updateLanguagePills();
 
   if (page.audioUrl) {
     state.currentAudioUrl = page.audioUrl;
     els.bookAudio.src = page.audioUrl;
-    els.playToggle.disabled = false;
-    els.pauseToggle.disabled = false;
+    setTransportAvailability(true);
     const resumeTime =
       book.progress?.pageIndex === page.index && Number.isFinite(book.progress?.audioTime) ? book.progress.audioTime : 0;
     if (resumeTime > 0) {
@@ -707,8 +719,7 @@ function applyBookPage(book, page, options = {}) {
     els.bookAudio.pause();
     els.bookAudio.removeAttribute("src");
     els.bookAudio.load();
-    els.playToggle.disabled = true;
-    els.pauseToggle.disabled = true;
+    setTransportAvailability(false);
   }
 
   const needsTranslation =
@@ -1222,13 +1233,74 @@ async function handleAudioEnded() {
     return;
   }
 
-  await loadLibraryBook(state.currentBook.id, nextPageIndex);
+  await loadLibraryBook(state.currentBook.id, nextPageIndex, { turnDirection: "forward" });
   if (els.bookAudio.src) {
     await els.bookAudio.play().catch(() => {});
     return;
   }
 
   await handlePrepareCurrentPage({ autoplay: true });
+}
+
+function setTransportAvailability(isReady) {
+  els.seekBackward.disabled = !isReady;
+  els.seekForward.disabled = !isReady;
+  els.restartToggle.disabled = !isReady;
+  els.playToggle.disabled = !isReady;
+  els.pauseToggle.disabled = !isReady;
+  els.stopToggle.disabled = !isReady;
+}
+
+function seekCurrentAudio(deltaSeconds) {
+  if (!els.bookAudio.src || !Number.isFinite(els.bookAudio.duration)) {
+    return;
+  }
+
+  const nextTime = Math.max(0, Math.min(els.bookAudio.duration, (els.bookAudio.currentTime || 0) + deltaSeconds));
+  els.bookAudio.currentTime = nextTime;
+  syncPlaybackHighlight();
+  scheduleProgressSave();
+}
+
+function handleStopCurrentPage() {
+  if (!els.bookAudio.src) {
+    return;
+  }
+  els.bookAudio.pause();
+  els.bookAudio.currentTime = 0;
+  state.lastHighlightedGlobalIndex = -1;
+  syncPlaybackHighlight();
+  void saveProgress();
+}
+
+async function handleRestartCurrentPage() {
+  if (!els.bookAudio.src) {
+    return;
+  }
+  els.bookAudio.currentTime = 0;
+  state.lastHighlightedGlobalIndex = -1;
+  syncPlaybackHighlight();
+  await els.bookAudio.play().catch(() => {});
+}
+
+function animatePageTurn(direction) {
+  if (!els.readerPage) {
+    return;
+  }
+
+  els.readerPage.classList.remove("turn-forward", "turn-backward");
+  window.clearTimeout(state.readerTurnTimer);
+  if (!direction) {
+    return;
+  }
+
+  const className = direction === "backward" ? "turn-backward" : "turn-forward";
+  requestAnimationFrame(() => {
+    els.readerPage.classList.add(className);
+    state.readerTurnTimer = window.setTimeout(() => {
+      els.readerPage.classList.remove(className);
+    }, 760);
+  });
 }
 
 function scheduleProgressSave() {

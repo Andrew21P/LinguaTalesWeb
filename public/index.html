@@ -54,7 +54,7 @@
             <p class="eyebrow">Modern reading, local generation</p>
             <h2>Turn text, scans, and book photos into a saved spoken library with your own voice.</h2>
             <p class="lede">
-              Import a book once, keep the original, save the PT-PT reading version, and generate audio one page ahead so the reading flow stays light, resumable, and local.
+              Import a book once, keep the original, save the PT-PT reading version, and keep three upcoming pages warming in the background so the reading flow stays light, resumable, and local.
             </p>
           </div>
 
@@ -229,8 +229,12 @@
               </div>
 
               <div class="player-cluster">
+                <button id="seek-backward" class="ghost-button transport-button" type="button" disabled>-10s</button>
+                <button id="restart-toggle" class="ghost-button transport-button" type="button" disabled>Restart page</button>
                 <button id="play-toggle" class="play-button" type="button" disabled>Play!</button>
                 <button id="pause-toggle" class="ghost-button" type="button" disabled>Pause</button>
+                <button id="stop-toggle" class="ghost-button transport-button" type="button" disabled>Stop</button>
+                <button id="seek-forward" class="ghost-button transport-button" type="button" disabled>+10s</button>
               </div>
             </div>
 
@@ -243,8 +247,12 @@
 
             <div id="selection-translation" class="translation-bar hidden"></div>
 
-            <div id="reader-content" class="reader-content empty-state">
-              Paste a book or upload a file to enter the reader.
+            <div class="reader-stage">
+              <div id="reader-page" class="reader-page">
+                <div id="reader-content" class="reader-content empty-state">
+                  Paste a book or upload a file to enter the reader.
+                </div>
+              </div>
             </div>
 
             <audio id="book-audio" preload="metadata"></audio>

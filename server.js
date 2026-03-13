@@ -20,6 +20,7 @@ const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.52);
 const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.94);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.28);
 const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
+const readyPageWindow = Math.max(1, Number(process.env.READY_PAGE_WINDOW || 3));
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
@@ -2769,13 +2770,20 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         await persistLibraryBook(book);
       }
 
-      if (!prefetch && safePageIndex + 1 < book.pages.length) {
-        void ensureLibraryBookPageReady({
-          bookId,
-          pageIndex: safePageIndex + 1,
-          voiceSampleId: voiceKey,
-          prefetch: true,
-        }).catch(() => {});
+      if (!prefetch) {
+        for (let offset = 1; offset <= readyPageWindow; offset += 1) {
+          const upcomingPageIndex = safePageIndex + offset;
+          if (upcomingPageIndex >= book.pages.length) {
+            break;
+          }
+
+          void startLibraryBookPagePreparation({
+            bookId,
+            pageIndex: upcomingPageIndex,
+            voiceSampleId: voiceKey,
+            prefetch: true,
+          }).catch(() => {});
+        }
       }
 
       return {
