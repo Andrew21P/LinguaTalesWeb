@@ -8,3 +8,4 @@ __pycache__/
 .venv/
 .venv311/
 .venv-arm64/
+.vscode/
