@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
     parser.add_argument("--exaggeration", type=float, default=0.52)
-    parser.add_argument("--speed", type=float, default=0.94)
+    parser.add_argument("--speed", type=float, default=0.95)
     parser.add_argument("--cfg-weight", type=float, default=0.28)
     return parser.parse_args()
 
@@ -519,7 +519,7 @@ def determine_pause(text: str) -> float:
     match = re.search(r"([,;:.!?…]+)[\"'”’)\]]*$", stripped)
     punctuation = match.group(1)[-1] if match else ""
     if punctuation and punctuation in ".!?…":
-        return 0.18
+        return 0.20
     if punctuation and punctuation in ":;":
         return 0.12
     if punctuation == ",":

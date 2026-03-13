@@ -86,7 +86,7 @@ Optional variables:
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=google-web` to use the stronger free web translator path by default
 - `DEFAULT_EXAGGERATION=0.52` if you want to tune the fixed narration expressiveness default
-- `DEFAULT_NARRATION_SPEED=0.94` if you want to tune the default rendered narration tempo
+- `DEFAULT_NARRATION_SPEED=0.95` if you want to tune the default rendered narration tempo
 - `DEFAULT_CFG_WEIGHT=0.28` if you want a slightly calmer multilingual Chatterbox guidance setting
 - `READY_PAGE_WINDOW=3` if you want Voxenor to keep more or fewer upcoming pages warming in the background
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
