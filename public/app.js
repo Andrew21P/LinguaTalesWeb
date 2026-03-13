@@ -141,12 +141,20 @@ function attachEvents() {
   els.bookForm.addEventListener("submit", handleBookOpen);
   els.pagePrev.addEventListener("click", () => void openAdjacentPage(-1));
   els.pageNext.addEventListener("click", () => void openAdjacentPage(1));
-  els.seekBackward.addEventListener("click", () => seekCurrentAudio(-10));
-  els.seekForward.addEventListener("click", () => seekCurrentAudio(10));
-  els.restartToggle.addEventListener("click", handleRestartCurrentPage);
+  if (els.seekBackward) {
+    els.seekBackward.addEventListener("click", () => seekCurrentAudio(-10));
+  }
+  if (els.seekForward) {
+    els.seekForward.addEventListener("click", () => seekCurrentAudio(10));
+  }
+  if (els.restartToggle) {
+    els.restartToggle.addEventListener("click", handleRestartCurrentPage);
+  }
   els.playToggle.addEventListener("click", handlePlayToggle);
   els.pauseToggle.addEventListener("click", () => els.bookAudio.pause());
-  els.stopToggle.addEventListener("click", handleStopCurrentPage);
+  if (els.stopToggle) {
+    els.stopToggle.addEventListener("click", handleStopCurrentPage);
+  }
   els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
   els.bookAudio.addEventListener("timeupdate", scheduleProgressSave);
   els.bookAudio.addEventListener("play", startPlaybackTracking);
@@ -573,6 +581,26 @@ function upsertLibraryBook(book) {
     book,
     ...state.libraryBooks.filter((existingBook) => existingBook.id !== book.id),
   ];
+}
+
+function mergeBookSummary(bookSummary) {
+  if (!bookSummary) {
+    return;
+  }
+
+  const existingBook = state.currentBook?.id === bookSummary.id ? state.currentBook : null;
+  if (existingBook) {
+    state.currentBook = {
+      ...existingBook,
+      ...bookSummary,
+      pages: existingBook.pages || [],
+    };
+  }
+
+  upsertLibraryBook({
+    ...(state.libraryBooks.find((book) => book.id === bookSummary.id) || {}),
+    ...bookSummary,
+  });
 }
 
 function getVisiblePageIndexes(totalPages, currentPageIndex, maxVisible = 5) {
@@ -1119,10 +1147,9 @@ async function handlePrepareCurrentPage(options = {}) {
       }),
     });
 
-    upsertLibraryBook(payload.book);
-    state.currentBook = payload.book;
+    mergeBookSummary(payload.book);
     renderLibraryBooks();
-    applyBookPage(payload.book, payload.page, {
+    applyBookPage(state.currentBook || payload.book, payload.page, {
       autoplay: Boolean(options.autoplay),
     });
     renderPageList();
@@ -1243,12 +1270,20 @@ async function handleAudioEnded() {
 }
 
 function setTransportAvailability(isReady) {
-  els.seekBackward.disabled = !isReady;
-  els.seekForward.disabled = !isReady;
-  els.restartToggle.disabled = !isReady;
+  if (els.seekBackward) {
+    els.seekBackward.disabled = !isReady;
+  }
+  if (els.seekForward) {
+    els.seekForward.disabled = !isReady;
+  }
+  if (els.restartToggle) {
+    els.restartToggle.disabled = !isReady;
+  }
   els.playToggle.disabled = !isReady;
   els.pauseToggle.disabled = !isReady;
-  els.stopToggle.disabled = !isReady;
+  if (els.stopToggle) {
+    els.stopToggle.disabled = !isReady;
+  }
 }
 
 function seekCurrentAudio(deltaSeconds) {

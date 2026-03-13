@@ -214,7 +214,13 @@ let userPreferences = loadUserPreferences();
 loadVoiceRegistry();
 
 app.use(express.json({ limit: "8mb" }));
-app.use(express.static(publicDir));
+app.use(
+  express.static(publicDir, {
+    setHeaders(res) {
+      res.setHeader("Cache-Control", "no-store");
+    },
+  })
+);
 app.use("/audio", requireSession, express.static(audioDir));
 app.use("/voices", requireSession, express.static(voicesDir));
 app.use("/library-assets", requireSession, express.static(libraryDir));
@@ -536,7 +542,7 @@ app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, async (r
     return res.status(prepared.started ? 202 : 200).json({
       ok: true,
       started: prepared.started,
-      book: toPublicBook(prepared.book),
+      book: toPublicBookSummary(prepared.book),
       page: toPublicBookPage(prepared.book, prepared.pageIndex),
     });
   } catch (error) {
