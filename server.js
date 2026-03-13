@@ -1900,7 +1900,12 @@ async function readLibraryBook(bookId) {
     if (!fs.existsSync(metadataPath)) {
       return null;
     }
-    return JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+    const book = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+    const { book: sanitizedBook, changed } = await sanitizeLibraryBookState(book);
+    if (changed) {
+      await persistLibraryBook(sanitizedBook);
+    }
+    return sanitizedBook;
   } catch {
     return null;
   }
@@ -2002,6 +2007,85 @@ function paginateBookText(text, pageWordLimit = 190, pageCharLimit = 1150) {
 
 function countWords(text) {
   return (text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || []).length;
+}
+
+function bookPageNeedsTranslation(book) {
+  return (
+    book.detectedLanguage &&
+    book.detectedLanguage !== "auto" &&
+    normalizeTranslationProviderLanguage(book.detectedLanguage) !==
+      normalizeTranslationProviderLanguage(book.audiobookLanguage || "pt-pt")
+  );
+}
+
+function resolveLibraryAudioFilePath(bookId, audioUrl) {
+  if (!audioUrl || typeof audioUrl !== "string") {
+    return "";
+  }
+
+  const expectedPrefix = `/library-assets/${bookId}/audio/`;
+  if (!audioUrl.startsWith(expectedPrefix)) {
+    return "";
+  }
+
+  return path.join(getLibraryBookDir(bookId), "audio", path.basename(audioUrl));
+}
+
+async function sanitizeLibraryBookState(book) {
+  let changed = false;
+  const needsTranslation = bookPageNeedsTranslation(book);
+
+  for (const page of book.pages || []) {
+    const audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
+    const audioExists = audioPath ? fs.existsSync(audioPath) : false;
+
+    if (page.translationStatus === "running" && !page.translatedText?.trim()) {
+      page.translationStatus = needsTranslation ? "idle" : "source";
+      changed = true;
+    }
+
+    if (page.translatedText?.trim()) {
+      if (page.translationStatus !== "ready") {
+        page.translationStatus = "ready";
+        changed = true;
+      }
+    } else if (!needsTranslation) {
+      if (page.translationStatus !== "source") {
+        page.translationStatus = "source";
+        changed = true;
+      }
+    } else if (page.translationStatus === "ready") {
+      page.translationStatus = "idle";
+      changed = true;
+    }
+
+    const hasInconsistentAudio = needsTranslation && !page.translatedText?.trim() && page.audioUrl;
+    const hasMissingAudioFile = Boolean(page.audioUrl) && !audioExists;
+    if (hasInconsistentAudio || hasMissingAudioFile) {
+      if (audioPath && audioExists) {
+        await fsp.rm(audioPath, { force: true }).catch(() => {});
+      }
+      page.audioStatus = "idle";
+      page.audioUrl = "";
+      page.audioVoiceId = "";
+      page.alignment = null;
+      if (hasInconsistentAudio) {
+        page.logs = [...(page.logs || []).slice(-6), "Reset an out-of-sync page so you can generate it again cleanly."];
+      }
+      changed = true;
+    } else if (page.audioStatus === "running" && !page.audioUrl) {
+      page.audioStatus = "idle";
+      changed = true;
+    } else if (page.audioUrl && page.audioStatus !== "ready") {
+      page.audioStatus = "ready";
+      changed = true;
+    }
+  }
+
+  return {
+    book,
+    changed,
+  };
 }
 
 async function hashFile(filePath) {

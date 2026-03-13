@@ -181,6 +181,7 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
   renderProfile(meta.profile, meta.localAccessUrls || []);
+  els.generateButton.textContent = "Generate audiobook";
 
   const booksPayload = await fetchJson("/api/books");
   state.libraryBooks = booksPayload.books || [];
@@ -342,12 +343,9 @@ async function handleBookOpen(event) {
     const importMessage = payload.existing
       ? `"${payload.book.title}" was already in your library, so I opened the saved copy.`
       : `Saved "${payload.book.title}" to your library.`;
-    setBookStatus(payload.existing ? importMessage : `${importMessage} Preparing page 1 automatically...`);
+    setBookStatus(payload.existing ? importMessage : `${importMessage} Pick a voice and click Generate audiobook.`);
     setSelectionTranslation(importMessage, false);
     els.bookFile.value = "";
-    void maybeAutoPrepareCurrentPage(
-      payload.existing ? "Preparing the saved page automatically..." : "Preparing the first page automatically..."
-    );
   } catch (error) {
     setBookStatus(error.message, true);
     setSelectionTranslation(error.message, true);
@@ -507,7 +505,7 @@ async function loadLibraryBook(bookId, pageIndex = 0) {
   upsertLibraryBook(payload.book);
   renderLibraryBooks();
   renderPageList();
-  await openBookPage(pageIndex);
+  await openBookPage(pageIndex, { autoPrepare: false });
 }
 
 async function handleDeleteBook(bookId) {
@@ -648,9 +646,6 @@ async function openBookPage(pageIndex, options = {}) {
   applyBookPage(state.currentBook, payload.page, options);
   renderPageList();
   await saveProgress();
-  if (options.autoPrepare !== false) {
-    void maybeAutoPrepareCurrentPage();
-  }
 }
 
 function applyBookPage(book, page, options = {}) {
@@ -709,16 +704,31 @@ function applyBookPage(book, page, options = {}) {
     els.bookAudio.pause();
     els.bookAudio.removeAttribute("src");
     els.bookAudio.load();
-    els.playToggle.disabled = false;
+    els.playToggle.disabled = true;
     els.pauseToggle.disabled = true;
   }
 
+  const needsTranslation =
+    (book.detectedLanguage || "auto") !== "auto" &&
+    normalizeLanguageCode(book.detectedLanguage || "auto") !== normalizeLanguageCode(book.audiobookLanguage || "pt-pt") &&
+    !page.translatedText;
+  const generationLogs = page.logs?.length
+    ? page.logs
+    : [
+        `Translation: ${page.translationStatus || (needsTranslation ? "idle" : "source")}.`,
+        `Audio: ${page.audioStatus || "idle"}.`,
+      ];
   updateGenerationUi({
-    label: page.audioUrl ? "Page ready." : "Page saved. Voxenor can prepare this page as soon as you open it.",
+    label: page.audioUrl
+      ? "Audiobook page ready. Press Play."
+      : needsTranslation
+        ? "This page is still in the original language. Click Generate audiobook to translate it and create the voice."
+        : "This page is ready to generate as an audiobook.",
     progress: page.audioUrl ? 100 : 0,
-    logs: page.logs || [],
+    logs: generationLogs,
   });
-  els.generationStatus.classList.toggle("hidden", !page.logs?.length && !page.audioUrl);
+  els.generationStatus.classList.remove("hidden");
+  els.generateButton.textContent = page.audioUrl ? "Regenerate audiobook" : "Generate audiobook";
 }
 
 function renderCurrentChapter() {
@@ -997,18 +1007,6 @@ async function handleDeleteVoiceSample(voiceSampleId) {
   }
 }
 
-function maybeAutoPrepareCurrentPage(statusMessage = "") {
-  const currentPage = state.currentBook?.pages?.[state.currentPageIndex];
-  if (!state.currentBook || !currentPage || currentPage.ready || currentPage.audioStatus === "running" || state.pagePreparing) {
-    return;
-  }
-
-  void handlePrepareCurrentPage({
-    background: true,
-    statusMessage,
-  });
-}
-
 async function openAdjacentPage(direction) {
   if (!state.currentBook?.pages?.length) {
     return;
@@ -1051,7 +1049,6 @@ async function handleDeletePage(pageIndex) {
     renderPageList();
     await saveProgress();
     setBookStatus(`${label} removed from "${payload.book.title}".`);
-    void maybeAutoPrepareCurrentPage("Preparing the next available page...");
   } catch (error) {
     setBookStatus(error.message, true);
     updateGenerationUi({
@@ -1075,11 +1072,15 @@ async function handlePrepareCurrentPage(options = {}) {
   try {
     state.pagePreparing = true;
     els.generateButton.disabled = true;
+    els.generateButton.textContent = "Generating audiobook...";
     els.generationStatus.classList.remove("hidden");
     updateGenerationUi({
       label: options.statusMessage || `Preparing page ${state.currentPageIndex + 1}...`,
-      progress: 32,
-      logs: ["Translating and generating the current page."],
+      progress: 16,
+      logs: [
+        `Page ${state.currentPageIndex + 1}: checking translation state.`,
+        "If needed, Voxenor will translate first and then generate the narration.",
+      ],
     });
 
     const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}/prepare`, {
@@ -1111,6 +1112,12 @@ async function handlePrepareCurrentPage(options = {}) {
   } finally {
     state.pagePreparing = false;
     els.generateButton.disabled = false;
+    if (state.currentBook) {
+      const currentPage = state.currentBook.pages?.[state.currentPageIndex];
+      els.generateButton.textContent = currentPage?.ready ? "Regenerate audiobook" : "Generate audiobook";
+    } else {
+      els.generateButton.textContent = "Generate audiobook";
+    }
   }
 }
 
@@ -1120,15 +1127,12 @@ async function handlePlayToggle() {
   }
 
   if (!els.bookAudio.src) {
-    if (state.pagePreparing) {
-      updateGenerationUi({
-        label: `Still preparing page ${state.currentPageIndex + 1}...`,
-        progress: 48,
-        logs: ["Voxenor is still translating and generating this page."],
-      });
-      return;
-    }
-    await handlePrepareCurrentPage({ autoplay: true });
+    updateGenerationUi({
+      label: `Page ${state.currentPageIndex + 1} is not ready yet.`,
+      progress: 0,
+      logs: ["Pick your voice and click Generate audiobook first."],
+    });
+    els.generationStatus.classList.remove("hidden");
     return;
   }
 
