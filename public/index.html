@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinguaTales</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <div class="ambient ambient-one"></div>
+      <div class="ambient ambient-two"></div>
+
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark">LT</div>
+          <div>
+            <p class="eyebrow">Local-first audiobook studio</p>
+            <h1>LinguaTales</h1>
+          </div>
+        </div>
+        <div class="topbar-meta">
+          <span class="meta-pill">Chatterbox-ready</span>
+          <span class="meta-pill">Inline translation</span>
+          <span class="meta-pill">Beautiful reading mode</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel hero-panel">
+          <div class="hero-copy">
+            <p class="eyebrow">Make reading feel like cinema</p>
+            <h2>Turn text, PDF, or EPUB into a voiced story with your own tone.</h2>
+            <p class="lede">
+              Paste a book, upload a file, record a voice sample, then generate a local audiobook.
+              Read along with softly highlighted text and translate any word or phrase instantly.
+            </p>
+          </div>
+
+          <div class="composer-grid">
+            <section class="card composer-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Book input</p>
+                  <h3>Paste text or upload a file</h3>
+                </div>
+                <span class="soft-pill">PDF / EPUB / plain text</span>
+              </div>
+
+              <form id="book-form" class="stack">
+                <label class="field">
+                  <span>Book title</span>
+                  <input id="book-title" name="title" type="text" placeholder="Harry Potter e a Pedra Filosofal" />
+                </label>
+
+                <label class="field">
+                  <span>Drop your story</span>
+                  <textarea
+                    id="book-text"
+                    name="text"
+                    rows="10"
+                    placeholder="Paste your story here if you do not want to upload a PDF or EPUB."
+                  ></textarea>
+                </label>
+
+                <label class="upload-zone" for="book-file">
+                  <input id="book-file" name="bookFile" type="file" accept=".pdf,.epub,.txt" />
+                  <span class="upload-title">Upload a book file</span>
+                  <span class="upload-subtitle">We extract the text locally on your server.</span>
+                </label>
+
+                <button class="primary-button" type="submit">Open the story</button>
+              </form>
+            </section>
+
+            <section class="card control-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Voice & language</p>
+                  <h3>Set the narration mood</h3>
+                </div>
+              </div>
+
+              <div class="voice-shelf" id="voice-shelf"></div>
+
+              <div class="stack compact-stack">
+                <div class="dual-fields">
+                  <label class="field">
+                    <span>Narration language</span>
+                    <select id="narration-language"></select>
+                  </label>
+                  <label class="field">
+                    <span>Translate into</span>
+                    <select id="translation-language"></select>
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span>Emotion exaggeration</span>
+                  <input id="exaggeration" type="range" min="0" max="1" step="0.05" value="0.7" />
+                </label>
+
+                <label class="field">
+                  <span>Pacing / cfg weight</span>
+                  <input id="cfg-weight" type="range" min="0" max="1" step="0.05" value="0.3" />
+                </label>
+              </div>
+
+              <div class="recording-card">
+                <div>
+                  <p class="eyebrow">Direct voice capture</p>
+                  <h3>Record your voice on the site</h3>
+                </div>
+                <p class="recording-note">
+                  A clear 10-20 second recording works best for cloning. Quiet room, one speaker.
+                </p>
+                <div class="recording-actions">
+                  <button id="record-toggle" class="secondary-button" type="button">Record voice</button>
+                  <button id="upload-voice-button" class="ghost-button" type="button">Upload sample</button>
+                  <input id="voice-file" type="file" accept="audio/*" hidden />
+                </div>
+                <p id="recording-status" class="status-text">No custom voice uploaded yet.</p>
+                <audio id="voice-preview" controls hidden></audio>
+              </div>
+
+              <button id="generate-button" class="primary-button glow-button" type="button">Create the audiobook</button>
+
+              <div id="generation-status" class="generation-status hidden">
+                <div class="status-row">
+                  <span id="generation-label">Preparing...</span>
+                  <span id="generation-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                  <div id="generation-progress" class="progress-fill"></div>
+                </div>
+                <div id="generation-log" class="log-surface"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="reader-shell">
+          <aside class="panel library-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Book architecture</p>
+                <h3>Chapters</h3>
+              </div>
+              <span class="soft-pill" id="chapter-count">0 sections</span>
+            </div>
+            <div id="chapter-list" class="chapter-list empty-state">
+              Open a story to see the reading structure.
+            </div>
+          </aside>
+
+          <section class="panel reader-panel">
+            <div class="reader-toolbar">
+              <div>
+                <p class="eyebrow">Reading room</p>
+                <h2 id="reader-title">Your audiobook will appear here</h2>
+              </div>
+
+              <div class="player-cluster">
+                <button id="play-toggle" class="play-button" type="button" disabled>Play!</button>
+                <button id="pause-toggle" class="ghost-button" type="button" disabled>Pause</button>
+              </div>
+            </div>
+
+            <div class="reader-meta-row">
+              <span class="meta-pill" id="active-language-pill">Narration: PT</span>
+              <span class="meta-pill" id="translation-language-pill">Translate: EN</span>
+              <span class="meta-pill" id="voice-pill">Voice: default</span>
+            </div>
+
+            <div id="selection-translation" class="translation-bar hidden"></div>
+
+            <div id="reader-content" class="reader-content empty-state">
+              Paste a book or upload a file to enter the reader.
+            </div>
+
+            <audio id="book-audio" preload="metadata"></audio>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="word-popover" class="word-popover hidden"></div>
+
+    <template id="chapter-button-template">
+      <button class="chapter-button" type="button">
+        <span class="chapter-index"></span>
+        <span class="chapter-title"></span>
+      </button>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

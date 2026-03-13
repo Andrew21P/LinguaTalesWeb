@@ -1,0 +1,16 @@
+[Unit]
+Description=LinguaTales audiobook app
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/srv/linguatales
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/env npm start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
