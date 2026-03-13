@@ -1083,15 +1083,16 @@ async function handlePrepareCurrentPage(options = {}) {
   try {
     const requestedBookId = state.currentBook.id;
     const requestedPageIndex = state.currentPageIndex;
+    const requestedPageLabel = requestedPageIndex + 1;
     state.pagePreparing = true;
     els.generateButton.disabled = true;
     els.generateButton.textContent = "Generating audiobook...";
     els.generationStatus.classList.remove("hidden");
     updateGenerationUi({
-      label: options.statusMessage || `Preparing page ${state.currentPageIndex + 1}...`,
+      label: options.statusMessage || `Preparing page ${requestedPageLabel}...`,
       progress: 16,
       logs: [
-        `Page ${state.currentPageIndex + 1}: checking translation state.`,
+        `Page ${requestedPageLabel}: checking translation state.`,
         "If needed, Voxenor will translate first and then generate the narration.",
       ],
     });
@@ -1107,7 +1108,6 @@ async function handlePrepareCurrentPage(options = {}) {
       }),
     });
 
-    stopPageStatusPolling();
     upsertLibraryBook(payload.book);
     state.currentBook = payload.book;
     renderLibraryBooks();
@@ -1115,9 +1115,65 @@ async function handlePrepareCurrentPage(options = {}) {
       autoplay: Boolean(options.autoplay),
     });
     renderPageList();
-    setBookStatus(`Page ${payload.page.index + 1} is ready in "${payload.book.title}".`);
     await persistPreferences();
+
+    const generationStillRunning =
+      !payload.page.audioUrl &&
+      (payload.started || payload.page.translationStatus === "running" || payload.page.audioStatus === "running");
+
+    if (generationStillRunning) {
+      startPageStatusPolling(requestedBookId, requestedPageIndex);
+      if (!payload.page.logs?.length) {
+        updateGenerationUi({
+          label: `Preparing page ${requestedPageLabel}...`,
+          progress: 18,
+          logs: [
+            `Page ${requestedPageLabel}: translation and narration started.`,
+            "Voxenor will keep polling until this page is ready.",
+          ],
+        });
+      }
+      setBookStatus(`Started generating page ${requestedPageLabel} in "${payload.book.title}".`);
+      return;
+    }
+
+    stopPageStatusPolling();
+    setBookStatus(`Page ${payload.page.index + 1} is ready in "${payload.book.title}".`);
   } catch (error) {
+    const requestedBookId = state.currentBook?.id;
+    const requestedPageIndex = state.currentPageIndex;
+
+    if (requestedBookId) {
+      try {
+        const recovery = await fetchJson(`/api/books/${requestedBookId}/pages/${requestedPageIndex}`);
+        const recoveryPage = recovery.page;
+        const summaryPage = state.currentBook?.pages?.[requestedPageIndex];
+        if (summaryPage) {
+          summaryPage.translationStatus = recoveryPage.translationStatus || summaryPage.translationStatus || "idle";
+          summaryPage.audioStatus = recoveryPage.audioStatus || summaryPage.audioStatus || "idle";
+          summaryPage.ready = Boolean(recoveryPage.audioUrl);
+        }
+
+        if (recoveryPage.audioUrl || recoveryPage.translationStatus === "running" || recoveryPage.audioStatus === "running") {
+          applyBookPage(state.currentBook, recoveryPage, {
+            autoplay: Boolean(options.autoplay && recoveryPage.audioUrl),
+          });
+          renderPageList();
+
+          if (recoveryPage.audioUrl) {
+            stopPageStatusPolling();
+            setBookStatus(`Page ${recoveryPage.index + 1} is ready in "${state.currentBook.title}".`);
+          } else {
+            startPageStatusPolling(requestedBookId, requestedPageIndex);
+            setBookStatus("Generation is still running in the background.");
+          }
+          return;
+        }
+      } catch {
+        // Fall through to the normal error path if even the recovery poll fails.
+      }
+    }
+
     stopPageStatusPolling();
     setBookStatus(error.message, true);
     updateGenerationUi({
@@ -1580,7 +1636,12 @@ async function translate(text) {
 }
 
 async function fetchJson(url, options) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch {
+    throw new Error("Could not reach the Voxenor server. Refresh and try again.");
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.error || `Request failed with status ${response.status}.`);

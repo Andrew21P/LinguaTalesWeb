@@ -133,6 +133,16 @@ const portuguesePortugalLexicon = [
   ["moço", "rapaz"],
   ["moças", "raparigas"],
   ["moços", "rapazes"],
+  ["bobagem", "disparate"],
+  ["bobagens", "disparates"],
+  ["brocas", "berbequins"],
+  ["a maior parte do tempo", "grande parte do tempo"],
+  ["em lugar nenhum", "em lado nenhum"],
+  ["esse tipo de bobagem", "esse tipo de disparate"],
+  ["tipo de bobagem", "tipo de disparate"],
+  ["que você esperaria", "que se esperaria"],
+  ["as últimas pessoas que você esperaria", "as últimas pessoas que se esperaria"],
+  ["não aceitavam esse tipo de", "não compactuavam com esse tipo de"],
 ];
 
 const portuguesePortugalPossessiveNouns = [
@@ -516,14 +526,15 @@ app.post("/api/books/:bookId/progress", requireSession, async (req, res) => {
 
 app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, async (req, res) => {
   try {
-    const prepared = await ensureLibraryBookPageReady({
+    const prepared = await startLibraryBookPagePreparation({
       bookId: req.params.bookId,
       pageIndex: Number(req.params.pageIndex),
       voiceSampleId: String(req.body?.voiceSampleId || "storybook"),
     });
 
-    return res.json({
+    return res.status(prepared.started ? 202 : 200).json({
       ok: true,
+      started: prepared.started,
       book: toPublicBook(prepared.book),
       page: toPublicBookPage(prepared.book, prepared.pageIndex),
     });
@@ -748,10 +759,16 @@ app.post("/api/translate", requireSession, async (req, res) => {
       source,
       target,
     });
+    const normalizedTarget = normalizeLanguageCode(target);
+    const translatedText =
+      normalizedTarget === "pt-pt"
+        ? normalizePortugueseForPortugal(result.translatedText, source)
+        : result.translatedText;
 
     return res.json({
       ok: true,
       ...result,
+      translatedText,
     });
   } catch (error) {
     return res.status(500).json({
@@ -1154,8 +1171,70 @@ async function runWarmChatterboxJob(payload, handlers = {}) {
 function normalizeText(text) {
   return text
     .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizeExtractedBookText(text) {
+  const rawText = normalizeText(text).replace(/\t+/g, " ");
+  if (!rawText) {
+    return "";
+  }
+
+  const blocks = rawText.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  const normalizedBlocks = blocks.map((block) => {
+    const lines = block
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    if (!lines.length) {
+      return "";
+    }
+
+    if (lines.length <= 4 && lines.every(looksLikeHeadingLine)) {
+      return lines.join("\n");
+    }
+
+    return lines.join(" ");
+  });
+
+  const mergedBlocks = [];
+  for (const block of normalizedBlocks.filter(Boolean)) {
+    const previousBlock = mergedBlocks.at(-1) || "";
+    if (shouldMergeNormalizedBookBlocks(previousBlock, block)) {
+      mergedBlocks[mergedBlocks.length - 1] = `${previousBlock} ${block}`.replace(/\s{2,}/g, " ").trim();
+      continue;
+    }
+    mergedBlocks.push(block);
+  }
+
+  return repairCommonBookExtractionArtifacts(mergedBlocks.join("\n\n").trim());
+}
+
+function looksLikeHeadingLine(line) {
+  const letters = String(line || "").replace(/[^\p{L}]/gu, "");
+  return Boolean(letters) && letters === letters.toUpperCase() && letters.length <= 80;
+}
+
+function shouldMergeNormalizedBookBlocks(previousBlock, currentBlock) {
+  if (!previousBlock || !currentBlock) {
+    return false;
+  }
+
+  if (/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Sra|Dra|Doutor|Doutora)\.$/u.test(previousBlock)) {
+    return true;
+  }
+
+  return !/[.!?…:]"?$/u.test(previousBlock) && /^[a-zà-ÿ]/iu.test(currentBlock);
+}
+
+function repairCommonBookExtractionArtifacts(text) {
+  return normalizeText(text)
+    .replace(/\br\.\s+and\s+Mrs\.(?=\s|$)/giu, "Mr. and Mrs.")
+    .replace(/\br\.\s+e\s+a\s+Sra\.(?=\s|$)/giu, "Sr. e a Sra.")
+    .replace(/\br\.\s+e\s+a\s+Senhora(?=\s|$)/giu, "Senhor e a Senhora")
     .trim();
 }
 
@@ -1650,6 +1729,16 @@ function normalizePortugueseForPortugal(text, sourceLanguage = "auto") {
 
   normalized = injectPortuguesePossessiveArticles(normalized);
   normalized = normalized
+    .replace(/\br\.\s+e\s+a\s+(sra\.|senhora)\b/giu, "o senhor e a senhora")
+    .replace(/\bSra\.(?=\s|$)/giu, (match) => applySourceCasing(match, "Senhora"))
+    .replace(/\bSr\.(?=\s|$)/giu, (match) => applySourceCasing(match, "Senhor"))
+    .replace(/\bDra\.(?=\s|$)/giu, (match) => applySourceCasing(match, "Doutora"))
+    .replace(/\bDr\.(?=\s|$)/giu, (match) => applySourceCasing(match, "Doutor"))
+    .replace(/\bque eles eram\b/giu, "que eram")
+    .replace(/\beles eram as últimas pessoas\b/giu, "eram as últimas pessoas")
+    .replace(/\bque estivessem envolvidas\b/giu, "que se metessem")
+    .replace(/\bestavam orgulhosos de dizer\b/giu, "orgulhavam-se de dizer")
+    .replace(/\bse esticando\b/giu, (match) => applySourceCasing(match, "esticando-se"))
     .replace(/\btelemovel\b/giu, (match) => applySourceCasing(match, "telemóvel"))
     .replace(/\btelemoveis\b/giu, (match) => applySourceCasing(match, "telemóveis"))
     .replace(/\bchavena\b/giu, (match) => applySourceCasing(match, "chávena"))
@@ -1660,7 +1749,9 @@ function normalizePortugueseForPortugal(text, sourceLanguage = "auto") {
     .replace(/\birmas\b/giu, (match) => applySourceCasing(match, "irmãs"))
     .replace(/\bmae\b/giu, (match) => applySourceCasing(match, "mãe"))
     .replace(/\bmaes\b/giu, (match) => applySourceCasing(match, "mães"))
-    .replace(/\bnumero\b/giu, (match) => applySourceCasing(match, "número"));
+    .replace(/\bnumero\b/giu, (match) => applySourceCasing(match, "número"))
+    .replace(/\bvoce\b/giu, (match) => applySourceCasing(match, "tu"))
+    .replace(/\bvocê\b/giu, (match) => applySourceCasing(match, "tu"));
 
   return normalized
     .replace(/\s+([,.;!?])/g, "$1")
@@ -2018,6 +2109,21 @@ function bookPageNeedsTranslation(book) {
   );
 }
 
+function ptPortugalTranslationNeedsRetry(text) {
+  if (!text?.trim()) {
+    return false;
+  }
+
+  return /\b(?:você|vocês|ônibus|onibus|trem|trens|celular|celulares|banheiro|banheiros|sorvete|sorvetes|garota|garotas|menino|meninos|menina|meninas|bobagem|bobagens)\b/iu.test(
+    text
+  );
+}
+
+function ptPortugalPageHasBrokenArtifact(page) {
+  const candidates = [page?.translatedText || "", page?.alignment?.preparedText || ""];
+  return candidates.some((text) => /\br\.\s+e\s+a\s+(?:sra\.|senhora)(?=\s|$)/iu.test(text));
+}
+
 function resolveLibraryAudioFilePath(bookId, audioUrl) {
   if (!audioUrl || typeof audioUrl !== "string") {
     return "";
@@ -2039,6 +2145,17 @@ async function sanitizeLibraryBookState(book) {
 
   for (const [pageIndex, page] of (book.pages || []).entries()) {
     const pageTaskActive = [...bookPageTasks.keys()].some((taskKey) => taskKey.startsWith(`${book.id}:${pageIndex}:`));
+    const normalizedSourceText = normalizeExtractedBookText(page.originalText || "");
+    if (normalizedSourceText && normalizedSourceText !== page.originalText) {
+      page.originalText = normalizedSourceText;
+      if (!page.audioUrl) {
+        page.translatedText = "";
+        page.translationStatus = needsTranslation ? "idle" : "source";
+        page.logs = [...(page.logs || []).slice(-4), "Source text was cleaned for stronger translation quality. Generate again to use it."];
+      }
+      changed = true;
+    }
+
     const audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
     const audioExists = audioPath ? fs.existsSync(audioPath) : false;
 
@@ -2048,8 +2165,25 @@ async function sanitizeLibraryBookState(book) {
     }
 
     if (page.translatedText?.trim()) {
+      if (normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" && !page.audioUrl) {
+        const normalizedTranslatedText = normalizePortugueseForPortugal(page.translatedText, book.detectedLanguage);
+        if (normalizedTranslatedText && normalizedTranslatedText !== page.translatedText) {
+          page.translatedText = normalizedTranslatedText;
+          changed = true;
+        }
+      }
       if (page.translationStatus !== "ready") {
         page.translationStatus = "ready";
+        changed = true;
+      }
+      if (
+        normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" &&
+        !page.audioUrl &&
+        ptPortugalTranslationNeedsRetry(page.translatedText)
+      ) {
+        page.translatedText = "";
+        page.translationStatus = "idle";
+        page.logs = [...(page.logs || []).slice(-4), "Retrying this translation with stronger PT-PT cleanup."];
         changed = true;
       }
     } else if (!needsTranslation) {
@@ -2064,7 +2198,11 @@ async function sanitizeLibraryBookState(book) {
 
     const hasInconsistentAudio = needsTranslation && !page.translatedText?.trim() && page.audioUrl;
     const hasMissingAudioFile = Boolean(page.audioUrl) && !audioExists;
-    if (hasInconsistentAudio || hasMissingAudioFile) {
+    const needsPtPortugalAssetRefresh =
+      normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" &&
+      !pageTaskActive &&
+      ptPortugalPageHasBrokenArtifact(page);
+    if (hasInconsistentAudio || hasMissingAudioFile || needsPtPortugalAssetRefresh) {
       if (audioPath && audioExists) {
         await fsp.rm(audioPath, { force: true }).catch(() => {});
       }
@@ -2074,6 +2212,10 @@ async function sanitizeLibraryBookState(book) {
       page.alignment = null;
       if (hasInconsistentAudio) {
         page.logs = [...(page.logs || []).slice(-6), "Reset an out-of-sync page so you can generate it again cleanly."];
+      } else if (needsPtPortugalAssetRefresh) {
+        page.translatedText = "";
+        page.translationStatus = "idle";
+        page.logs = [...(page.logs || []).slice(-6), "Reset this page to rebuild it with the latest PT-PT fixes."];
       }
       changed = true;
     } else if (page.audioStatus === "running" && !page.audioUrl && !pageTaskActive) {
@@ -2219,12 +2361,13 @@ function toPublicBook(book) {
 function toPublicBookPage(book, pageIndex) {
   const safePageIndex = clampPageIndex(book, pageIndex);
   const page = book.pages[safePageIndex];
+  const displayText = page.alignment?.preparedText || page.translatedText || page.originalText;
   return {
     index: safePageIndex,
     title: page.title || `Page ${safePageIndex + 1}`,
     sourceText: page.originalText,
     translatedText: page.translatedText || "",
-    displayText: page.translatedText || page.originalText,
+    displayText,
     translationStatus: page.translationStatus || "idle",
     audioStatus: page.audioStatus || "idle",
     audioUrl: page.audioUrl || "",
@@ -2263,7 +2406,7 @@ async function createLibraryBookFromRequest(req) {
     sourceLanguageHint,
     file: req.file,
   });
-  const extractedText = normalizeText(extraction.text || "");
+  const extractedText = normalizeExtractedBookText(extraction.text || "");
   if (!extractedText) {
     throw new Error("I could not extract readable text from that upload.");
   }
@@ -2464,6 +2607,38 @@ async function deleteLibraryBookPage(bookId, pageIndex) {
   };
 }
 
+async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleId, prefetch = false }) {
+  const requestedVoiceKey = resolveBookVoiceKey(voiceSampleId);
+  let book = await readLibraryBook(bookId);
+  if (!book) {
+    throw new Error("That book was not found.");
+  }
+
+  const safePageIndex = clampPageIndex(book, pageIndex);
+  const page = book.pages[safePageIndex];
+  if (!page) {
+    throw new Error("That page was not found.");
+  }
+
+  const taskKey = `${bookId}:${safePageIndex}:${requestedVoiceKey}`;
+  const alreadyReady = pageHasReadyAudio(page, requestedVoiceKey);
+  if (!alreadyReady && !bookPageTasks.has(taskKey)) {
+    void ensureLibraryBookPageReady({
+      bookId,
+      pageIndex: safePageIndex,
+      voiceSampleId: requestedVoiceKey,
+      prefetch,
+    }).catch(() => {});
+  }
+
+  book = (await readLibraryBook(bookId)) || book;
+  return {
+    book,
+    pageIndex: safePageIndex,
+    started: !alreadyReady,
+  };
+}
+
 async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, prefetch = false }) {
   const voiceKey = resolveBookVoiceKey(voiceSampleId);
   const taskKey = `${bookId}:${pageIndex}:${voiceKey}`;
@@ -2483,129 +2658,148 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
       throw new Error("That page was not found.");
     }
 
-    if (book.voiceSampleId !== voiceKey) {
-      book.voiceSampleId = voiceKey;
-      await clearBookAudioCache(book);
-      await persistLibraryBook(book);
-    }
-
-    if (!prefetch) {
-      book.progress = {
-        pageIndex: safePageIndex,
-        audioTime: 0,
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    if (!page.translatedText?.trim()) {
-      if (
-        book.detectedLanguage &&
-        book.detectedLanguage !== "auto" &&
-        normalizeTranslationProviderLanguage(book.detectedLanguage) !==
-          normalizeTranslationProviderLanguage(book.audiobookLanguage)
-      ) {
-        page.translationStatus = "running";
-        appendPageLog(page, `Translating page ${safePageIndex + 1} into ${book.audiobookLanguage.toUpperCase()}.`);
+    try {
+      if (book.voiceSampleId !== voiceKey) {
+        book.voiceSampleId = voiceKey;
+        await clearBookAudioCache(book);
         await persistLibraryBook(book);
-
-        const translatedText = await translateLongText({
-          text: page.originalText,
-          source: book.detectedLanguage,
-          target: book.audiobookLanguage,
-        });
-
-        page.translatedText =
-          normalizeLanguageCode(book.audiobookLanguage) === "pt-pt"
-            ? normalizePortugueseForPortugal(translatedText, book.detectedLanguage)
-            : translatedText;
-        page.translationStatus = "ready";
-        appendPageLog(page, "Translation saved for this page.");
-        await persistLibraryBook(book);
-        await persistLibraryDerivedTexts(book);
-      } else {
-        page.translatedText = page.originalText;
-        page.translationStatus = "ready";
-      }
-    }
-
-    if (!pageHasReadyAudio(page, voiceKey)) {
-      page.audioStatus = "running";
-      appendPageLog(page, "Generating the audiobook page.");
-      await persistLibraryBook(book);
-
-      const bookDir = getLibraryBookDir(book.id);
-      const pagesDir = path.join(bookDir, "pages");
-      const audioCacheDir = path.join(bookDir, "audio");
-      await fsp.mkdir(pagesDir, { recursive: true });
-      await fsp.mkdir(audioCacheDir, { recursive: true });
-
-      const pagePrefix = `page-${String(safePageIndex + 1).padStart(4, "0")}-${sanitizeVoiceKey(voiceKey)}`;
-      const inputTextPath = path.join(pagesDir, `${pagePrefix}.txt`);
-      const outputWavPath = path.join(audioCacheDir, `${pagePrefix}.wav`);
-      const metadataPath = path.join(audioCacheDir, `${pagePrefix}.json`);
-      await fsp.writeFile(inputTextPath, normalizeText(page.translatedText || page.originalText), "utf8");
-
-      const resolvedVoiceSample = resolveVoiceSample(voiceKey)
-        ? await ensureVoiceSamplePrompt(resolveVoiceSample(voiceKey))
-        : null;
-      if (voiceKey !== "storybook" && !resolvedVoiceSample) {
-        throw new Error("The selected custom voice is no longer available. Upload it again and retry.");
       }
 
-      await runChatterboxGeneration(
-        {
-          inputTextPath,
-          outputWavPath,
-          metadataPath,
-          language: book.audiobookLanguage,
-          voiceSamplePath: resolvedVoiceSample?.path || "",
-          exaggeration: defaultExaggeration,
-          narrationSpeed: defaultNarrationSpeed,
-          cfgWeight: defaultCfgWeight,
-        },
-        {
-          onLine: async (line) => {
-            book = (await readLibraryBook(book.id)) || book;
-            const livePage = book.pages[safePageIndex];
-            if (!livePage) {
-              return;
-            }
-            if (line.startsWith("PROGRESS:")) {
-              const [, rawMessage = ""] = line.split("|");
-              if (rawMessage) {
-                appendPageLog(livePage, rawMessage);
-                await persistLibraryBook(book);
-              }
-            }
-          },
+      if (!prefetch) {
+        book.progress = {
+          pageIndex: safePageIndex,
+          audioTime: 0,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      if (!page.translatedText?.trim()) {
+        if (
+          book.detectedLanguage &&
+          book.detectedLanguage !== "auto" &&
+          normalizeTranslationProviderLanguage(book.detectedLanguage) !==
+            normalizeTranslationProviderLanguage(book.audiobookLanguage)
+        ) {
+          page.translationStatus = "running";
+          appendPageLog(page, `Translating page ${safePageIndex + 1} into ${book.audiobookLanguage.toUpperCase()}.`);
+          await persistLibraryBook(book);
+
+          const translatedText = await translateLongText({
+            text: normalizeExtractedBookText(page.originalText),
+            source: book.detectedLanguage,
+            target: book.audiobookLanguage,
+          });
+
+          page.translatedText =
+            normalizeLanguageCode(book.audiobookLanguage) === "pt-pt"
+              ? normalizePortugueseForPortugal(translatedText, book.detectedLanguage)
+              : translatedText;
+          page.translationStatus = "ready";
+          appendPageLog(page, "Translation saved for this page.");
+          await persistLibraryBook(book);
+          await persistLibraryDerivedTexts(book);
+        } else {
+          page.translatedText = page.originalText;
+          page.translationStatus = "ready";
         }
-      );
-
-      book = (await readLibraryBook(book.id)) || book;
-      const completedPage = book.pages[safePageIndex];
-      completedPage.audioStatus = "ready";
-      completedPage.audioVoiceId = voiceKey;
-      completedPage.audioUrl = `/library-assets/${book.id}/audio/${path.basename(outputWavPath)}`;
-      if (fs.existsSync(metadataPath)) {
-        completedPage.alignment = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
       }
-      appendPageLog(completedPage, "Audiobook page ready.");
-      await persistLibraryBook(book);
-    }
 
-    if (!prefetch && safePageIndex + 1 < book.pages.length) {
-      void ensureLibraryBookPageReady({
-        bookId,
-        pageIndex: safePageIndex + 1,
-        voiceSampleId: voiceKey,
-        prefetch: true,
-      }).catch(() => {});
-    }
+      if (!pageHasReadyAudio(page, voiceKey)) {
+        page.audioStatus = "running";
+        appendPageLog(page, "Generating the audiobook page.");
+        await persistLibraryBook(book);
 
-    return {
-      book,
-      pageIndex: safePageIndex,
-    };
+        const bookDir = getLibraryBookDir(book.id);
+        const pagesDir = path.join(bookDir, "pages");
+        const audioCacheDir = path.join(bookDir, "audio");
+        await fsp.mkdir(pagesDir, { recursive: true });
+        await fsp.mkdir(audioCacheDir, { recursive: true });
+
+        const pagePrefix = `page-${String(safePageIndex + 1).padStart(4, "0")}-${sanitizeVoiceKey(voiceKey)}`;
+        const inputTextPath = path.join(pagesDir, `${pagePrefix}.txt`);
+        const outputWavPath = path.join(audioCacheDir, `${pagePrefix}.wav`);
+        const metadataPath = path.join(audioCacheDir, `${pagePrefix}.json`);
+        await fsp.writeFile(inputTextPath, normalizeText(page.translatedText || page.originalText), "utf8");
+
+        const resolvedVoiceSample = resolveVoiceSample(voiceKey)
+          ? await ensureVoiceSamplePrompt(resolveVoiceSample(voiceKey))
+          : null;
+        if (voiceKey !== "storybook" && !resolvedVoiceSample) {
+          throw new Error("The selected custom voice is no longer available. Upload it again and retry.");
+        }
+
+        await runChatterboxGeneration(
+          {
+            inputTextPath,
+            outputWavPath,
+            metadataPath,
+            language: book.audiobookLanguage,
+            voiceSamplePath: resolvedVoiceSample?.path || "",
+            exaggeration: defaultExaggeration,
+            narrationSpeed: defaultNarrationSpeed,
+            cfgWeight: defaultCfgWeight,
+          },
+          {
+            onLine: async (line) => {
+              book = (await readLibraryBook(book.id)) || book;
+              const livePage = book.pages[safePageIndex];
+              if (!livePage) {
+                return;
+              }
+              if (line.startsWith("PROGRESS:")) {
+                const [, rawMessage = ""] = line.split("|");
+                if (rawMessage) {
+                  appendPageLog(livePage, rawMessage);
+                  await persistLibraryBook(book);
+                }
+              }
+            },
+          }
+        );
+
+        book = (await readLibraryBook(book.id)) || book;
+        const completedPage = book.pages[safePageIndex];
+        completedPage.audioStatus = "ready";
+        completedPage.audioVoiceId = voiceKey;
+        completedPage.audioUrl = `/library-assets/${book.id}/audio/${path.basename(outputWavPath)}`;
+        if (fs.existsSync(metadataPath)) {
+          completedPage.alignment = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+        }
+        appendPageLog(completedPage, "Audiobook page ready.");
+        await persistLibraryBook(book);
+      }
+
+      if (!prefetch && safePageIndex + 1 < book.pages.length) {
+        void ensureLibraryBookPageReady({
+          bookId,
+          pageIndex: safePageIndex + 1,
+          voiceSampleId: voiceKey,
+          prefetch: true,
+        }).catch(() => {});
+      }
+
+      return {
+        book,
+        pageIndex: safePageIndex,
+      };
+    } catch (error) {
+      book = (await readLibraryBook(bookId)) || book;
+      const failedPage = book.pages?.[safePageIndex];
+      if (failedPage) {
+        if (failedPage.translationStatus === "running") {
+          failedPage.translationStatus = bookPageNeedsTranslation(book) ? "idle" : "source";
+        }
+        if (failedPage.audioStatus === "running") {
+          failedPage.audioStatus = "idle";
+        }
+        failedPage.audioUrl = "";
+        failedPage.audioVoiceId = "";
+        failedPage.alignment = null;
+        appendPageLog(failedPage, `Generation failed: ${error.message}`);
+        await persistLibraryBook(book).catch(() => {});
+      }
+      throw error;
+    }
   })();
 
   bookPageTasks.set(taskKey, task);

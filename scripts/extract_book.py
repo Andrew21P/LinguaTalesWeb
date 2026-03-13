@@ -279,10 +279,30 @@ def guess_heading(soup) -> str | None:
 
 
 def normalize_text(text: str) -> str:
-    text = text.replace("\r\n", "\n")
+    text = text.replace("\r\n", "\n").replace("\u00a0", " ").replace("\t", " ")
+    text = re.sub(r"(?<=\w)-\n(?=\w)", "", text)
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+
+    normalized_blocks: list[str] = []
+    for raw_block in re.split(r"\n\s*\n", text):
+        lines = [re.sub(r"\s+", " ", line).strip() for line in raw_block.splitlines()]
+        lines = [line for line in lines if line]
+        if not lines:
+            continue
+
+        if len(lines) <= 4 and all(looks_like_heading(line) for line in lines):
+            normalized_blocks.append("\n".join(lines))
+            continue
+
+        normalized_blocks.append(" ".join(lines))
+
+    return "\n\n".join(normalized_blocks).strip()
+
+
+def looks_like_heading(line: str) -> bool:
+    letters = re.sub(r"[^A-Za-zÀ-ÿ]", "", line)
+    return bool(letters) and letters == letters.upper() and len(letters) <= 80
 
 
 def split_chapters(text: str) -> list[dict]:
