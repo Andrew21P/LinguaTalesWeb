@@ -48,6 +48,7 @@ def main() -> None:
         import torch
         import torchaudio as ta
         from chatterbox import mtl_tts as cb_mtl
+        patch_alignment_stream_analyzer(torch)
     except ImportError:
         if can_use_say_fallback():
             generate_with_say_fallback(args, segments, output_path)
@@ -81,7 +82,14 @@ def main() -> None:
                 "exaggeration": args.exaggeration,
                 "cfg_weight": args.cfg_weight,
             }
-            wav = model.generate(segment.text, **kwargs)
+            try:
+                wav = model.generate(segment.text, **kwargs)
+            except IndexError as error:
+                if "Expected reduction dim 1 to have non-zero size" in str(error):
+                    print("PROGRESS:15|Retrying a short segment without alignment integrity checks.", flush=True)
+                    wav = generate_segment_without_alignment(model, segment.text, kwargs)
+                else:
+                    raise
             part_path = temp_dir_path / f"chunk-{index:04d}.wav"
             ta.save(str(part_path), wav, model.sr)
             part_paths.append(part_path)
@@ -188,6 +196,87 @@ def load_multilingual_model(cb_mtl, torch_module, device: str):
     return cb_mtl.ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, device, conds=conds)
 
 
+def patch_alignment_stream_analyzer(torch_module) -> None:
+    from chatterbox.models.t3.inference.alignment_stream_analyzer import AlignmentStreamAnalyzer, logger
+
+    if getattr(AlignmentStreamAnalyzer.step, "__name__", "") == "safe_alignment_step":
+        return
+
+    # Upstream Chatterbox can crash on very short multilingual segments when the
+    # trailing alignment slice has zero columns. Guard that edge case locally.
+    def safe_alignment_step(self, logits, next_token=None):
+        aligned_attn = torch_module.stack(self.last_aligned_attns).mean(dim=0)
+        i, j = self.text_tokens_slice
+        if self.curr_frame_pos == 0:
+            A_chunk = aligned_attn[j:, i:j].clone().cpu()
+        else:
+            A_chunk = aligned_attn[:, i:j].clone().cpu()
+
+        A_chunk[:, self.curr_frame_pos + 1:] = 0
+        self.alignment = torch_module.cat((self.alignment, A_chunk), dim=0)
+
+        A = self.alignment
+        T, S = A.shape
+
+        cur_text_posn = A_chunk[-1].argmax()
+        discontinuity = not (-4 < cur_text_posn - self.text_position < 7)
+        if not discontinuity:
+            self.text_position = cur_text_posn
+
+        false_start = (not self.started) and (A[-2:, -2:].max() > 0.1 or A[:, :4].max() < 0.5)
+        self.started = not false_start
+        if self.started and self.started_at is None:
+            self.started_at = T
+
+        self.complete = self.complete or self.text_position >= S - 3
+        if self.complete and self.completed_at is None:
+            self.completed_at = T
+
+        long_tail = self.complete and (A[self.completed_at:, -3:].sum(dim=0).max() >= 5)
+
+        alignment_repetition = False
+        trailing_alignment = A[self.completed_at:, :-5] if self.complete else None
+        if self.complete and trailing_alignment is not None and trailing_alignment.numel() > 0 and trailing_alignment.shape[1] > 0:
+            alignment_repetition = trailing_alignment.max(dim=1).values.sum() > 5
+
+        if next_token is not None:
+            if isinstance(next_token, torch_module.Tensor):
+                token_id = next_token.item() if next_token.numel() == 1 else next_token.view(-1)[0].item()
+            else:
+                token_id = next_token
+            self.generated_tokens.append(token_id)
+            if len(self.generated_tokens) > 8:
+                self.generated_tokens = self.generated_tokens[-8:]
+
+        token_repetition = len(self.generated_tokens) >= 3 and len(set(self.generated_tokens[-2:])) == 1
+        if token_repetition:
+            logger.warning(f"Detected 2x repetition of token {self.generated_tokens[-1]}")
+
+        if cur_text_posn < S - 3 and S > 5:
+            logits[..., self.eos_idx] = -(2**15)
+
+        if long_tail or alignment_repetition or token_repetition:
+            logger.warning(f"forcing EOS token, {long_tail=}, {alignment_repetition=}, {token_repetition=}")
+            logits = -(2**15) * torch_module.ones_like(logits)
+            logits[..., self.eos_idx] = 2**15
+
+        self.curr_frame_pos += 1
+        return logits
+
+    AlignmentStreamAnalyzer.step = safe_alignment_step
+
+
+def generate_segment_without_alignment(model, text: str, kwargs: dict):
+    # `is_multilingual` only controls analyzer creation in upstream inference, so
+    # temporarily disabling it is a safe way to retry a bad edge-case segment.
+    original_flag = model.t3.hp.is_multilingual
+    try:
+        model.t3.hp.is_multilingual = False
+        return model.generate(text, **kwargs)
+    finally:
+        model.t3.hp.is_multilingual = original_flag
+
+
 def segment_text(text: str, max_chars: int = 240) -> list[NarrationSegment]:
     normalized = text.replace("\r\n", "\n").strip()
     if not normalized:
@@ -218,7 +307,7 @@ def segment_text(text: str, max_chars: int = 240) -> list[NarrationSegment]:
 
 
 def split_paragraph_into_clauses(paragraph: str) -> list[dict]:
-    pieces = re.findall(r"[^,;:.!?…]+(?:[,;:.!?…]+|$)", paragraph)
+    pieces = re.findall(r"[^;:.!?…]+(?:[;:.!?…]+|$)", paragraph)
     clauses = []
     for piece in pieces:
         text = piece.strip()
