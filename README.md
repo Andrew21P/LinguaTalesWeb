@@ -1,22 +1,24 @@
 # LinguaTales
 
-LinguaTales is a local-first audiobook web app: paste text or upload a `PDF` / `EPUB`, record a voice sample in the browser, generate an audiobook with Chatterbox, and read along in a rich reader with instant inline translation.
+LinguaTales is a local-first audiobook web app: paste text or upload a `PDF`, `EPUB`, `TXT`, or book-page photo, record a voice sample in the browser, generate an audiobook with Chatterbox, and read along in a rich reader with inline translation.
 
 ## Stack
 
 - Node.js + Express for the web server and API
 - Plain HTML, CSS, and vanilla JS for a low-friction frontend
-- Python helper scripts for PDF / EPUB extraction and Chatterbox generation
-- `ffmpeg` for stitching generated audio chunks into one audiobook file
+- Python helper scripts for OCR, extraction, language detection, and Chatterbox generation
+- `ffmpeg` for stitching and mastering generated audio chunks into one audiobook file
 
 ## Features
 
-- Beautiful landing + reader experience optimized for desktop and mobile
-- Text paste, `PDF`, `EPUB`, and `TXT` ingestion
+- Emerald reader experience optimized for desktop and mobile
+- Text paste, `PDF`, `EPUB`, `TXT`, and image ingestion
+- OCR for scanned pages and book photos with free local tooling
 - In-browser voice recording and audio sample upload
-- Chatterbox-ready audiobook generation pipeline with expressive controls
-- Soft word-by-word highlighting during playback
+- PT-PT-first audiobook generation pipeline with source-language detection and optional translation before narration
+- Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation
+- Audio mastering after synthesis for a cleaner final export
 - Localhost friendly and simple to deploy on a Hetzner VM
 
 ## Repository guide
@@ -48,11 +50,12 @@ pip install -r scripts/requirements.txt
 
 Notes:
 
-- `scripts/requirements.txt` installs the core parsing dependencies and works well for local setup.
+- `scripts/requirements.txt` installs the parsing, OCR, and language-detection dependencies used by the extraction pipeline.
 - Real Chatterbox generation is optional and lives in [scripts/requirements-chatterbox.txt](/Users/andre/LinguaTales/scripts/requirements-chatterbox.txt).
 - `chatterbox-tts` may download model weights the first time you generate audio.
 - CPU mode works, but a CUDA GPU is much better for long books.
 - `ffmpeg` must be available on your `PATH`.
+- `tesseract` should be available on your `PATH` if you want OCR from photos or scanned pages.
 - Browser-recorded voice prompts are normalized to mono `wav` automatically before cloning so Chatterbox gets a stable prompt format.
 
 Optional Chatterbox install:
@@ -78,6 +81,7 @@ Optional variables:
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
+- `DEFAULT_EXAGGERATION=0.48` if you want to tune the fixed narration expressiveness default
 
 ### 4. Run the app
 
@@ -99,18 +103,25 @@ This app is intentionally simple to host:
 A starter `systemd` unit is included at [deploy/linguatales.service](/Users/andre/LinguaTales/deploy/linguatales.service).
 More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales/docs/hosting-hetzner.md).
 
+## Language support
+
+- Fully supported narration target right now: `Portuguese (Portugal)`.
+- Books can still come from other languages. The app can detect the source language and translate the text into PT before narration.
+- The listener language is separate from the audiobook language so inline translations can stay personalized.
+
 ## Notes about translation
 
-- Word and phrase translation is wired to free services by default.
-- For production, self-hosting LibreTranslate is a better path than depending on public rate-limited endpoints.
+- Small phrase translation is wired to free services by default.
+- Whole-book translation is also supported, but quality and reliability are best when you self-host LibreTranslate.
+- The public MyMemory fallback is convenient for testing, but it is not ideal for long books.
+
+## Notes about OCR
+
+- Image OCR and scanned-page OCR are handled locally with `tesseract`, `pytesseract`, and `PyMuPDF`.
+- OCR quality is best with straight pages, good lighting, and high-resolution photos.
 
 ## Notes about Chatterbox
 
 This project uses the official Python package interface from Resemble AI's Chatterbox repository. The generation script targets `ChatterboxMultilingualTTS`, which supports Portuguese as `pt`, and falls back to a macOS demo voice only when the host machine cannot install the official Chatterbox runtime.
 
-For more dramatic delivery, the controls in the UI map to:
-
-- `Emotion exaggeration`
-- `CFG weight` for slower or more deliberate pacing
-
-Those settings mirror the guidance in the official project for expressive narration.
+LinguaTales now keeps expressiveness fixed in the product and nudges it slightly more lively by default, while also running a light mastering chain after synthesis for a cleaner final export.

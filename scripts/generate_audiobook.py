@@ -12,6 +12,20 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+WORD_PATTERN = re.compile(r"[\wºª]+(?:[-'’][\wºª]+)*", re.UNICODE)
+MASTERING_FILTER_CHAIN = ",".join(
+    [
+        "highpass=f=55",
+        "lowpass=f=13500",
+        "equalizer=f=2300:t=q:w=1.1:g=1.6",
+        "equalizer=f=5200:t=q:w=1.2:g=1.1",
+        "acompressor=threshold=-19dB:ratio=2.2:attack=12:release=90:makeup=2.2",
+        "speechnorm=e=6.5:r=0.0008:l=1",
+        "loudnorm=I=-16:LRA=10:TP=-1.5",
+        "alimiter=limit=0.95",
+    ]
+)
+
 LANGUAGE_NUMBER_WORD = {
     "pt": "número",
     "en": "number",
@@ -110,7 +124,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metadata-output", default="")
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
-    parser.add_argument("--exaggeration", type=float, default=0.42)
+    parser.add_argument("--exaggeration", type=float, default=0.48)
     parser.add_argument("--cfg-weight", type=float, default=0.32)
     return parser.parse_args()
 
@@ -219,6 +233,7 @@ def main() -> None:
                         "segments": alignment_segments,
                         "totalDuration": current_time,
                         "wordCount": current_word,
+                        "preparedText": prepared_text,
                     },
                     ensure_ascii=False,
                 ),
@@ -511,7 +526,7 @@ def wrap_long_clause(sentence: str, max_chars: int) -> list[str]:
 
 
 def count_words(text: str) -> int:
-    return len(re.findall(r"[^\W_]+", text, flags=re.UNICODE))
+    return len(WORD_PATTERN.findall(text))
 
 
 def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
@@ -521,6 +536,7 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
             list_file.write(f"file '{part_path.as_posix()}'\n")
 
     try:
+        raw_output_path = output_path.with_name(f"{output_path.stem}.raw.wav")
         result = subprocess.run(
             [
                 "ffmpeg",
@@ -531,9 +547,9 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
                 "0",
                 "-i",
                 str(list_path),
-                "-c",
-                "copy",
-                str(output_path),
+                "-c:a",
+                "pcm_s16le",
+                str(raw_output_path),
             ],
             capture_output=True,
             text=True,
@@ -541,8 +557,33 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
         )
         if result.returncode != 0:
             raise SystemExit(result.stderr.strip() or "ffmpeg failed while combining audiobook chunks.")
+
+        mastered = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(raw_output_path),
+                "-af",
+                MASTERING_FILTER_CHAIN,
+                "-ar",
+                "24000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if mastered.returncode != 0:
+            raise SystemExit(mastered.stderr.strip() or "ffmpeg failed while mastering the audiobook.")
     finally:
         list_path.unlink(missing_ok=True)
+        raw_output_path = output_path.with_name(f"{output_path.stem}.raw.wav")
+        raw_output_path.unlink(missing_ok=True)
 
 
 def can_use_say_fallback() -> bool:

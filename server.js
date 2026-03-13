@@ -15,7 +15,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
-const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.42);
+const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.48);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 
 const rootDir = __dirname;
@@ -41,7 +41,8 @@ const upload = multer({
 const jobs = new Map();
 const voiceRegistry = new Map();
 
-const languageCatalog = [
+const sourceLanguageCatalog = [
+  { code: "auto", label: "Auto Detect" },
   { code: "pt", label: "Portuguese" },
   { code: "en", label: "English" },
   { code: "es", label: "Spanish" },
@@ -56,26 +57,15 @@ const languageCatalog = [
   { code: "ja", label: "Japanese" },
 ];
 
+const listenerLanguageCatalog = sourceLanguageCatalog.filter((language) => language.code !== "auto");
+const audiobookLanguageCatalog = [{ code: "pt", locale: "pt-PT", label: "Portuguese (Portugal)" }];
+
 const builtInVoiceSamples = [
   {
     id: "storybook",
-    name: "Storybook Default",
+    name: "Lusophone Studio",
     language: "pt",
-    vibe: "Warm and intimate narration",
-    builtIn: true,
-  },
-  {
-    id: "midnight",
-    name: "Midnight Velvet",
-    language: "en",
-    vibe: "Slow cinematic performance",
-    builtIn: true,
-  },
-  {
-    id: "ember",
-    name: "Ember Stage",
-    language: "es",
-    vibe: "Expressive storyteller energy",
+    vibe: "Portuguese (Portugal) narrator profile",
     builtIn: true,
   },
 ];
@@ -90,7 +80,10 @@ app.use("/voices", express.static(voicesDir));
 app.get("/api/meta", (_req, res) => {
   res.json({
     ok: true,
-    languages: languageCatalog,
+    sourceLanguages: sourceLanguageCatalog,
+    listenerLanguages: listenerLanguageCatalog,
+    audiobookLanguages: audiobookLanguageCatalog,
+    fullySupportedLanguages: audiobookLanguageCatalog,
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
     defaults: {
       exaggeration: defaultExaggeration,
@@ -98,7 +91,7 @@ app.get("/api/meta", (_req, res) => {
     },
     modelInfo: {
       active: "Chatterbox Multilingual",
-      note: "Official Portuguese-capable model from the Chatterbox family.",
+      note: "Fully supported today for Portuguese (Portugal) narration, with translation and OCR helping broader source-language coverage.",
     },
   });
 });
@@ -107,28 +100,47 @@ app.post("/api/book/extract", upload.single("bookFile"), async (req, res) => {
   try {
     const manualText = req.body.text?.trim();
     const title = (req.body.title || "Untitled Story").trim();
+    const sourceLanguageHint = normalizeLanguageCode(req.body.sourceLanguage || "auto");
 
     if (manualText) {
-      const normalized = normalizeText(manualText);
-      return res.json({
-        ok: true,
-        title,
-        text: normalized,
-        chapters: splitIntoChapters(normalized),
-        source: "manual",
-      });
+      const manualFileName = `${crypto.randomUUID()}.txt`;
+      const manualFilePath = path.join(tmpDir, manualFileName);
+      await fsp.writeFile(manualFilePath, normalizeText(manualText), "utf8");
+
+      try {
+        const extraction = await runPythonJson("scripts/extract_book.py", [
+          manualFilePath,
+          `${title || "manual-book"}.txt`,
+          sourceLanguageHint,
+        ]);
+
+        return res.json({
+          ok: true,
+          title: extraction.title || title,
+          text: extraction.text,
+          chapters: extraction.chapters?.length
+            ? extraction.chapters
+            : splitIntoChapters(extraction.text),
+          source: "manual",
+          detectedLanguage: normalizeLanguageCode(extraction.detectedLanguage || sourceLanguageHint || "pt"),
+          ocrUsed: Boolean(extraction.ocrUsed),
+        });
+      } finally {
+        await fsp.rm(manualFilePath, { force: true });
+      }
     }
 
     if (!req.file) {
       return res.status(400).json({
         ok: false,
-        error: "Please paste text or upload a PDF / EPUB file.",
+        error: "Please paste text or upload a PDF, EPUB, TXT, or book photo.",
       });
     }
 
     const extraction = await runPythonJson("scripts/extract_book.py", [
       req.file.path,
       req.file.originalname,
+      sourceLanguageHint,
     ]);
 
     return res.json({
@@ -139,6 +151,8 @@ app.post("/api/book/extract", upload.single("bookFile"), async (req, res) => {
         ? extraction.chapters
         : splitIntoChapters(extraction.text),
       source: extraction.source || path.extname(req.file.originalname).slice(1),
+      detectedLanguage: normalizeLanguageCode(extraction.detectedLanguage || sourceLanguageHint || "pt"),
+      ocrUsed: Boolean(extraction.ocrUsed),
     });
   } catch (error) {
     return res.status(500).json({
@@ -183,7 +197,16 @@ app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => 
 });
 
 app.post("/api/audiobook/generate", async (req, res) => {
-  const { title, text, language, voiceSampleId, exaggeration, cfgWeight } = req.body || {};
+  const {
+    title,
+    text,
+    sourceLanguage,
+    listenerLanguage,
+    audiobookLanguage,
+    voiceSampleId,
+    exaggeration,
+    cfgWeight,
+  } = req.body || {};
 
   if (!text?.trim()) {
     return res.status(400).json({
@@ -236,7 +259,9 @@ app.post("/api/audiobook/generate", async (req, res) => {
     inputTextPath,
     outputWavPath,
     metadataPath,
-    language: language || "pt",
+    sourceLanguage: normalizeLanguageCode(sourceLanguage || "auto"),
+    listenerLanguage: normalizeLanguageCode(listenerLanguage || "en"),
+    language: normalizeLanguageCode(audiobookLanguage || "pt"),
     voiceSamplePath: resolvedVoiceSample?.path || "",
     exaggeration: Number(exaggeration ?? defaultExaggeration),
     cfgWeight: Number(cfgWeight ?? defaultCfgWeight),
@@ -319,12 +344,54 @@ async function runGenerationJob(config) {
   job.status = "running";
   job.progress = 5;
   job.logs.push("Preparing Chatterbox generation.");
+  job.sourceLanguage = config.sourceLanguage;
+  job.listenerLanguage = config.listenerLanguage;
+  job.audiobookLanguage = config.language;
   await persistJob(config.jobId, job);
+
+  let effectiveInputTextPath = config.inputTextPath;
+  const originalText = await fsp.readFile(config.inputTextPath, "utf8");
+
+  if (config.sourceLanguage && config.sourceLanguage !== "auto" && config.sourceLanguage !== config.language) {
+    job.logs.push(
+      `Translating the book from ${config.sourceLanguage.toUpperCase()} to ${config.language.toUpperCase()} before narration.`
+    );
+    job.progress = 8;
+    await persistJob(config.jobId, job);
+
+    const translatedText = await translateLongText({
+      text: originalText,
+      source: config.sourceLanguage,
+      target: config.language,
+      onProgress: async ({ percent, message }) => {
+        const latestJob = jobs.get(config.jobId);
+        if (!latestJob) {
+          return;
+        }
+        latestJob.progress = Math.max(latestJob.progress || 0, Math.min(14, 8 + Math.round(percent * 0.06)));
+        latestJob.logs.push(message);
+        await persistJob(config.jobId, latestJob);
+      },
+    });
+
+    const translatedTextPath = path.join(path.dirname(config.inputTextPath), "book.translated.txt");
+    await fsp.writeFile(translatedTextPath, translatedText, "utf8");
+    effectiveInputTextPath = translatedTextPath;
+    job.readerText = translatedText;
+    job.readerChapters = splitIntoChapters(translatedText);
+    job.readerLanguage = config.language;
+    await persistJob(config.jobId, job);
+  } else {
+    job.readerText = originalText;
+    job.readerChapters = splitIntoChapters(originalText);
+    job.readerLanguage = config.sourceLanguage === "auto" ? config.language : config.sourceLanguage;
+    await persistJob(config.jobId, job);
+  }
 
   const args = [
     path.join(rootDir, "scripts", "generate_audiobook.py"),
     "--input",
-    config.inputTextPath,
+    effectiveInputTextPath,
     "--output",
     config.outputWavPath,
     "--metadata-output",
@@ -372,6 +439,10 @@ async function runGenerationJob(config) {
   job.audioUrl = `/audio/${path.basename(config.outputWavPath)}`;
   if (fs.existsSync(config.metadataPath)) {
     job.alignment = JSON.parse(await fsp.readFile(config.metadataPath, "utf8"));
+    if (job.alignment?.preparedText) {
+      job.readerText = job.alignment.preparedText;
+      job.readerChapters = splitIntoChapters(job.readerText);
+    }
   }
   await persistJob(config.jobId, job);
 }
@@ -467,6 +538,20 @@ function normalizeText(text) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function normalizeLanguageCode(language) {
+  const code = String(language || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("_", "-");
+  if (!code || code === "auto") {
+    return "auto";
+  }
+  if (code.startsWith("pt")) {
+    return "pt";
+  }
+  return code.split("-")[0];
 }
 
 function splitIntoChapters(text) {
@@ -609,6 +694,9 @@ async function runCommand(command, args) {
 }
 
 async function translateText({ text, source, target }) {
+  const normalizedSource = normalizeLanguageCode(source || "auto");
+  const normalizedTarget = normalizeLanguageCode(target || "pt");
+
   const libretranslateUrl = process.env.LIBRETRANSLATE_URL;
   const libretranslateKey = process.env.LIBRETRANSLATE_API_KEY;
 
@@ -620,8 +708,8 @@ async function translateText({ text, source, target }) {
       },
       body: JSON.stringify({
         q: text,
-        source,
-        target,
+        source: normalizedSource,
+        target: normalizedTarget,
         api_key: libretranslateKey || undefined,
         format: "text",
       }),
@@ -643,7 +731,7 @@ async function translateText({ text, source, target }) {
     throw new Error("Translation provider is not configured.");
   }
 
-  const langPair = `${source === "auto" ? "pt" : source}|${target}`;
+  const langPair = `${normalizedSource === "auto" ? "en" : normalizedSource}|${normalizedTarget}`;
   const endpoint = new URL("https://api.mymemory.translated.net/get");
   endpoint.searchParams.set("q", text);
   endpoint.searchParams.set("langpair", langPair);
@@ -666,6 +754,84 @@ async function translateText({ text, source, target }) {
     provider: "mymemory",
     translatedText,
   };
+}
+
+async function translateLongText({ text, source, target, onProgress }) {
+  const normalizedText = normalizeText(text);
+  const normalizedSource = normalizeLanguageCode(source);
+  const normalizedTarget = normalizeLanguageCode(target);
+  if (!normalizedText || normalizedSource === normalizedTarget) {
+    return normalizedText;
+  }
+
+  const chunks = chunkTextForTranslation(normalizedText);
+  const translatedChunks = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const progressPercent = Math.round(((index + 1) / chunks.length) * 100);
+    const { translatedText } = await translateText({
+      text: chunk,
+      source: normalizedSource,
+      target: normalizedTarget,
+    });
+    translatedChunks.push(translatedText.trim());
+    if (onProgress) {
+      await onProgress({
+        percent: progressPercent,
+        message: `Translated section ${index + 1} of ${chunks.length}.`,
+      });
+    }
+  }
+
+  return normalizeText(translatedChunks.join("\n\n"));
+}
+
+function chunkTextForTranslation(text, maxChunkLength = 420) {
+  const paragraphs = normalizeText(text)
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  const chunks = [];
+  let currentChunk = "";
+  for (const paragraph of paragraphs) {
+    const candidate = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph;
+    if (candidate.length <= maxChunkLength) {
+      currentChunk = candidate;
+      continue;
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    if (paragraph.length <= maxChunkLength) {
+      currentChunk = paragraph;
+      continue;
+    }
+
+    const sentences = paragraph.match(/[^.!?]+[.!?]?/g) || [paragraph];
+    let sentenceChunk = "";
+    for (const sentence of sentences) {
+      const sentenceCandidate = sentenceChunk ? `${sentenceChunk} ${sentence.trim()}` : sentence.trim();
+      if (sentenceCandidate.length <= maxChunkLength) {
+        sentenceChunk = sentenceCandidate;
+      } else {
+        if (sentenceChunk) {
+          chunks.push(sentenceChunk);
+        }
+        sentenceChunk = sentence.trim();
+      }
+    }
+    currentChunk = sentenceChunk;
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.length ? chunks : [normalizeText(text)];
 }
 
 function loadVoiceRegistry() {

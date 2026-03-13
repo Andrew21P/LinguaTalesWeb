@@ -1,12 +1,18 @@
 const state = {
   title: "",
   fullText: "",
+  sourceText: "",
   chapters: [],
   currentChapterIndex: 0,
   currentChapterTokens: [],
   chapterWordCounts: [],
   chapterWordOffsets: [],
   totalWordCount: 0,
+  bookLanguage: "auto",
+  detectedBookLanguage: "pt",
+  listenerLanguage: "en",
+  audiobookLanguage: "pt",
+  readerLanguage: "pt",
   selectedVoice: null,
   voiceSamples: [],
   customVoice: null,
@@ -17,22 +23,17 @@ const state = {
   currentAudioUrl: "",
   lastHighlightedGlobalIndex: -1,
   alignmentSegments: [],
-  defaultExaggeration: 0.42,
+  alignmentWordTimings: [],
+  highlightAnimationFrame: 0,
+  followPlayback: true,
+  readerScrollLockedUntil: 0,
+  selectionTranslateTimer: 0,
+  lastSelectionText: "",
+  defaultExaggeration: 0.48,
 };
 
 const voicePromptHints = {
-  pt: "O senhor tinha número quatro, mas a senhora tinha tempo e cuidado. Digo tudo com voz calma, natural e precisa.",
-  en: "Mr. Parker walked to number four with a calm, clear, natural voice.",
-  es: "El señor estaba en el número cuatro, con una voz clara, tranquila y natural.",
-  fr: "Monsieur Dupont arrive au numéro quatre, avec une voix calme, claire et naturelle.",
-  de: "Herr Weber kommt zu Nummer vier mit einer ruhigen, klaren und natürlichen Stimme.",
-  it: "Il signore Rossi arriva al numero quattro con una voce calma, chiara e naturale.",
-  nl: "Meneer Jansen gaat naar nummer vier met een rustige, heldere en natuurlijke stem.",
-  sv: "Herr Berg går till nummer fyra med en lugn, tydlig och naturlig röst.",
-  pl: "Doktor Kowalski mówi spokojnym, wyraźnym i naturalnym głosem przy numerze cztery.",
-  tr: "Sayin Demir numara dörtte sakin, net ve doğal bir sesle konuşuyor.",
-  zh: "请用平静、清晰、自然的声音读这一段，号码四。",
-  ja: "番号四を、落ち着いて、自然で、はっきりした声で読んでください。",
+  pt: "O senhor tinha número quatro, mas a senhora tinha tempo e cuidado. Hoje leio com presença, calor e clareza natural.",
 };
 
 const els = {
@@ -40,6 +41,9 @@ const els = {
   bookTitle: document.querySelector("#book-title"),
   bookText: document.querySelector("#book-text"),
   bookFile: document.querySelector("#book-file"),
+  bookLanguage: document.querySelector("#book-language"),
+  listenerLanguage: document.querySelector("#listener-language"),
+  audiobookLanguage: document.querySelector("#audiobook-language"),
   chapterList: document.querySelector("#chapter-list"),
   chapterCount: document.querySelector("#chapter-count"),
   readerTitle: document.querySelector("#reader-title"),
@@ -47,12 +51,12 @@ const els = {
   playToggle: document.querySelector("#play-toggle"),
   pauseToggle: document.querySelector("#pause-toggle"),
   bookAudio: document.querySelector("#book-audio"),
-  translationLanguage: document.querySelector("#translation-language"),
-  narrationLanguage: document.querySelector("#narration-language"),
   activeLanguagePill: document.querySelector("#active-language-pill"),
   translationLanguagePill: document.querySelector("#translation-language-pill"),
+  listenerLanguagePill: document.querySelector("#listener-language-pill"),
   voicePill: document.querySelector("#voice-pill"),
   voiceShelf: document.querySelector("#voice-shelf"),
+  supportedLanguageList: document.querySelector("#supported-language-list"),
   chapterButtonTemplate: document.querySelector("#chapter-button-template"),
   wordPopover: document.querySelector("#word-popover"),
   selectionTranslation: document.querySelector("#selection-translation"),
@@ -62,7 +66,6 @@ const els = {
   voicePreview: document.querySelector("#voice-preview"),
   voiceScriptText: document.querySelector("#voice-script-text"),
   recordingStatus: document.querySelector("#recording-status"),
-  exaggeration: document.querySelector("#exaggeration"),
   generateButton: document.querySelector("#generate-button"),
   generationStatus: document.querySelector("#generation-status"),
   generationLabel: document.querySelector("#generation-label"),
@@ -81,28 +84,30 @@ bootstrap().catch((error) => {
 async function bootstrap() {
   const meta = await fetchJson("/api/meta");
   state.voiceSamples = meta.voiceSamples;
-  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.42;
-  renderLanguageOptions(meta.languages);
-  els.exaggeration.value = String(state.defaultExaggeration);
+  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.48;
+  renderLanguageOptions(meta);
+  renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
   attachEvents();
 }
 
 function attachEvents() {
   els.bookForm.addEventListener("submit", handleBookOpen);
-  els.playToggle.addEventListener("click", () => {
-    els.bookAudio.play();
-  });
-  els.pauseToggle.addEventListener("click", () => {
-    els.bookAudio.pause();
-  });
+  els.playToggle.addEventListener("click", () => els.bookAudio.play());
+  els.pauseToggle.addEventListener("click", () => els.bookAudio.pause());
   els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
+  els.bookAudio.addEventListener("play", startPlaybackTracking);
+  els.bookAudio.addEventListener("pause", stopPlaybackTracking);
+  els.bookAudio.addEventListener("ended", stopPlaybackTracking);
+  els.bookAudio.addEventListener("seeking", syncPlaybackHighlight);
   els.recordToggle.addEventListener("click", toggleRecording);
   els.uploadVoiceButton.addEventListener("click", () => els.voiceFile.click());
   els.voiceFile.addEventListener("change", handleVoiceUploadFromPicker);
   els.generateButton.addEventListener("click", handleGenerateAudiobook);
-  els.translationLanguage.addEventListener("change", updateLanguagePills);
-  els.narrationLanguage.addEventListener("change", updateLanguagePills);
+  els.bookLanguage.addEventListener("change", updateLanguagePills);
+  els.listenerLanguage.addEventListener("change", updateLanguagePills);
+  els.audiobookLanguage.addEventListener("change", updateLanguagePills);
+  els.readerContent.addEventListener("scroll", handleReaderManualScroll, { passive: true });
 
   document.addEventListener("click", (event) => {
     if (
@@ -114,8 +119,9 @@ function attachEvents() {
     }
   });
 
-  document.addEventListener("mouseup", handleSelectionTranslate);
-  document.addEventListener("keyup", handleSelectionTranslate);
+  document.addEventListener("selectionchange", scheduleSelectionTranslate);
+  document.addEventListener("mouseup", scheduleSelectionTranslate);
+  document.addEventListener("keyup", scheduleSelectionTranslate);
 }
 
 async function handleBookOpen(event) {
@@ -124,6 +130,7 @@ async function handleBookOpen(event) {
   const formData = new FormData();
   formData.append("title", els.bookTitle.value.trim());
   formData.append("text", els.bookText.value);
+  formData.append("sourceLanguage", els.bookLanguage.value);
   if (els.bookFile.files[0]) {
     formData.append("bookFile", els.bookFile.files[0]);
   }
@@ -137,9 +144,14 @@ async function handleBookOpen(event) {
     });
 
     state.title = payload.title || "Untitled Story";
+    state.sourceText = payload.text;
     state.fullText = payload.text;
     state.chapters = payload.chapters || [];
+    state.bookLanguage = els.bookLanguage.value;
+    state.detectedBookLanguage = payload.detectedLanguage || state.bookLanguage || "pt";
+    state.readerLanguage = state.detectedBookLanguage;
     state.alignmentSegments = [];
+    state.alignmentWordTimings = [];
     computeChapterWordMetrics();
     state.currentChapterIndex = 0;
     state.lastHighlightedGlobalIndex = -1;
@@ -154,23 +166,46 @@ async function handleBookOpen(event) {
   }
 }
 
-function renderLanguageOptions(languages) {
-  for (const language of languages) {
+function renderLanguageOptions(meta) {
+  const sourceLanguages = meta.sourceLanguages || [];
+  const listenerLanguages = meta.listenerLanguages || [];
+  const audiobookLanguages = meta.audiobookLanguages || [];
+
+  for (const language of [...sourceLanguages, ...listenerLanguages, ...audiobookLanguages]) {
     languageLabels.set(language.code, language.label);
-
-    const narrationOption = document.createElement("option");
-    narrationOption.value = language.code;
-    narrationOption.textContent = language.label;
-
-    const translationOption = narrationOption.cloneNode(true);
-
-    els.narrationLanguage.append(narrationOption);
-    els.translationLanguage.append(translationOption);
   }
 
-  els.narrationLanguage.value = "pt";
-  els.translationLanguage.value = "en";
+  populateSelect(els.bookLanguage, sourceLanguages);
+  populateSelect(els.listenerLanguage, listenerLanguages);
+  populateSelect(els.audiobookLanguage, audiobookLanguages);
+
+  els.bookLanguage.value = "auto";
+  els.listenerLanguage.value = "en";
+  els.audiobookLanguage.value = "pt";
   updateLanguagePills();
+}
+
+function populateSelect(selectNode, options) {
+  selectNode.innerHTML = "";
+  options.forEach((option) => {
+    const element = document.createElement("option");
+    element.value = option.code;
+    element.textContent = option.locale ? `${option.label}` : option.label;
+    selectNode.append(element);
+  });
+}
+
+function renderSupportedLanguages(languages) {
+  els.supportedLanguageList.innerHTML = languages
+    .map(
+      (language) => `
+        <div class="support-item">
+          <strong>${escapeHtml(language.label)}</strong>
+          <span>Voice cloning, synced reading, translation workflow, and OCR intake.</span>
+        </div>
+      `
+    )
+    .join("");
 }
 
 function renderVoiceShelf() {
@@ -282,15 +317,30 @@ function renderCurrentChapter() {
 }
 
 function tokenizeParagraph(paragraph) {
-  return paragraph.split(/(\s+|[.,!?;:"“”'()\-]+)/).filter(Boolean).map((part) => {
-    if (/^[\p{L}\p{N}]+$/u.test(part)) {
-      return { type: "word", value: part };
+  const tokens = [];
+  const pattern = /[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu;
+  let lastIndex = 0;
+  let match;
+  while ((match = pattern.exec(paragraph))) {
+    if (match.index > lastIndex) {
+      tokens.push({ type: "separator", value: paragraph.slice(lastIndex, match.index) });
     }
-    return { type: "separator", value: part };
-  });
+    tokens.push({ type: "word", value: match[0] });
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < paragraph.length) {
+    tokens.push({ type: "separator", value: paragraph.slice(lastIndex) });
+  }
+  return tokens.filter((token) => token.value);
 }
 
 async function handleWordTranslate(word, event) {
+  const selectionText = getActiveReaderSelectionText();
+  if (selectionText) {
+    await handleSelectionTranslate(selectionText);
+    return;
+  }
+
   try {
     const payload = await translate(word);
     showWordPopover({
@@ -309,23 +359,42 @@ async function handleWordTranslate(word, event) {
   }
 }
 
-async function handleSelectionTranslate() {
+function scheduleSelectionTranslate() {
+  clearTimeout(state.selectionTranslateTimer);
+  state.selectionTranslateTimer = window.setTimeout(async () => {
+    const text = getActiveReaderSelectionText();
+    if (!text || text === state.lastSelectionText) {
+      return;
+    }
+    state.lastSelectionText = text;
+    await handleSelectionTranslate(text);
+  }, 140);
+}
+
+function getActiveReaderSelectionText() {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) {
-    return;
+    state.lastSelectionText = "";
+    return "";
   }
 
   const text = selection.toString().trim();
   if (!text || text.length < 2 || text.length > 220) {
-    return;
+    return "";
   }
 
   const anchorInReader = els.readerContent.contains(selection.anchorNode);
   const focusInReader = els.readerContent.contains(selection.focusNode);
   if (!anchorInReader && !focusInReader) {
+    return "";
+  }
+  return text;
+}
+
+async function handleSelectionTranslate(text = getActiveReaderSelectionText()) {
+  if (!text) {
     return;
   }
-
   try {
     setSelectionTranslation(`Translating "${truncate(text, 60)}"...`, true);
     const payload = await translate(text);
@@ -348,7 +417,7 @@ function setSelectionTranslation(message, isError, allowHtml = false) {
   }
   els.selectionTranslation.style.borderColor = isError
     ? "rgba(255, 132, 132, 0.35)"
-    : "rgba(255, 232, 206, 0.16)";
+    : "rgba(124, 255, 186, 0.22)";
 }
 
 function hideWordPopover() {
@@ -410,7 +479,7 @@ async function uploadVoiceFile(file) {
   const formData = new FormData();
   formData.append("voiceSample", file);
   formData.append("name", "My Voice");
-  formData.append("language", els.narrationLanguage.value);
+  formData.append("language", els.audiobookLanguage.value);
 
   els.recordToggle.textContent = "Record voice";
   els.recordingStatus.textContent = "Uploading your custom voice sample...";
@@ -459,10 +528,12 @@ async function handleGenerateAudiobook() {
       },
       body: JSON.stringify({
         title: state.title,
-        text: state.fullText,
-        language: els.narrationLanguage.value,
+        text: state.sourceText || state.fullText,
+        sourceLanguage:
+          els.bookLanguage.value === "auto" ? state.detectedBookLanguage || "pt" : els.bookLanguage.value,
+        listenerLanguage: els.listenerLanguage.value,
+        audiobookLanguage: els.audiobookLanguage.value,
         voiceSampleId: state.selectedVoice?.builtIn ? "" : state.selectedVoice?.id || "",
-        exaggeration: Number(els.exaggeration.value),
       }),
     });
 
@@ -498,7 +569,18 @@ function startGenerationPolling() {
         clearInterval(state.generationPoller);
         state.currentAudioUrl = job.audioUrl;
         state.alignmentSegments = job.alignment?.segments || [];
+        state.alignmentWordTimings = buildAlignmentWordTimings(state.alignmentSegments);
         state.lastHighlightedGlobalIndex = -1;
+        state.followPlayback = true;
+        if (job.readerText && job.readerText !== state.fullText) {
+          state.fullText = job.readerText;
+          state.chapters = job.readerChapters || [{ title: "Complete Text", content: job.readerText }];
+          state.readerLanguage = job.readerLanguage || els.audiobookLanguage.value;
+          state.currentChapterIndex = 0;
+          computeChapterWordMetrics();
+          renderChapterList();
+          renderCurrentChapter();
+        }
         els.bookAudio.src = job.audioUrl;
         els.playToggle.disabled = false;
         els.pauseToggle.disabled = false;
@@ -533,8 +615,24 @@ function updateGenerationUi({ label, progress, logs }) {
   els.generationLog.innerHTML = logs.map((entry) => `<div>${escapeHtml(entry)}</div>`).join("");
 }
 
+function startPlaybackTracking() {
+  state.followPlayback = true;
+  cancelAnimationFrame(state.highlightAnimationFrame);
+  const tick = () => {
+    syncPlaybackHighlight();
+    if (!els.bookAudio.paused && !els.bookAudio.ended) {
+      state.highlightAnimationFrame = window.requestAnimationFrame(tick);
+    }
+  };
+  tick();
+}
+
+function stopPlaybackTracking() {
+  cancelAnimationFrame(state.highlightAnimationFrame);
+}
+
 function syncPlaybackHighlight() {
-  if (state.alignmentSegments.length) {
+  if (state.alignmentWordTimings.length) {
     syncPlaybackHighlightFromAlignment();
     return;
   }
@@ -577,48 +675,40 @@ function syncPlaybackHighlight() {
 }
 
 function syncPlaybackHighlightFromAlignment() {
-  if (!state.totalWordCount || !els.bookAudio.duration) {
+  if (!state.totalWordCount || !els.bookAudio.duration || !state.alignmentWordTimings.length) {
     return;
   }
 
-  const segment = findAlignmentSegment(els.bookAudio.currentTime);
-  if (!segment) {
+  const wordTiming = findAlignmentWordTiming(els.bookAudio.currentTime);
+  if (!wordTiming) {
     return;
   }
 
-  const wordsInSegment = Math.max(1, segment.wordEnd - segment.wordStart);
-  const segmentDuration = Math.max(0.001, segment.end - segment.start);
-  const progress = Math.max(0, Math.min(0.999, (els.bookAudio.currentTime - segment.start) / segmentDuration));
-  const globalIndex = Math.min(
-    segment.wordEnd - 1,
-    Math.max(segment.wordStart, segment.wordStart + Math.floor(progress * wordsInSegment))
-  );
-
-  if (globalIndex === state.lastHighlightedGlobalIndex) {
+  if (wordTiming.index === state.lastHighlightedGlobalIndex) {
     return;
   }
 
-  activateWordByGlobalIndex(globalIndex);
+  activateWordByGlobalIndex(wordTiming.index);
 }
 
-function findAlignmentSegment(currentTime) {
-  let previousSegment = null;
-  for (const segment of state.alignmentSegments) {
-    if (currentTime >= segment.start && currentTime <= segment.end) {
-      return segment;
+function findAlignmentWordTiming(currentTime) {
+  let previousWord = null;
+  for (const wordTiming of state.alignmentWordTimings) {
+    if (currentTime >= wordTiming.start && currentTime <= wordTiming.end) {
+      return wordTiming;
     }
-    if (segment.end < currentTime) {
-      previousSegment = segment;
+    if (wordTiming.end < currentTime) {
+      previousWord = wordTiming;
     }
   }
-  return previousSegment;
+  return previousWord;
 }
 
 function activateWordByGlobalIndex(globalIndex) {
   state.lastHighlightedGlobalIndex = globalIndex;
   const chapterIndex = resolveChapterIndexForWord(globalIndex);
 
-  if (chapterIndex !== state.currentChapterIndex) {
+  if (chapterIndex !== state.currentChapterIndex && state.followPlayback) {
     state.currentChapterIndex = chapterIndex;
     setActiveChapterButton(chapterIndex);
     renderCurrentChapter();
@@ -630,20 +720,86 @@ function activateWordByGlobalIndex(globalIndex) {
   const activeToken = state.currentChapterTokens[localIndex];
   if (activeToken) {
     activeToken.classList.add("active");
-    activeToken.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-      behavior: "smooth",
-    });
+    revealTokenIfNeeded(activeToken);
   }
 }
 
+function buildAlignmentWordTimings(segments) {
+  const timings = [];
+  for (const segment of segments) {
+    const words = tokenizeWords(segment.text);
+    if (!words.length) {
+      continue;
+    }
+
+    const segmentDuration = Math.max(0.001, segment.end - segment.start);
+    const weights = words.map((word) => Math.max(1, Math.pow(word.length, 0.9)));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    let cursor = segment.start;
+
+    for (let index = 0; index < words.length; index += 1) {
+      const sliceDuration =
+        index === words.length - 1
+          ? Math.max(0.001, segment.end - cursor)
+          : segmentDuration * (weights[index] / totalWeight);
+      timings.push({
+        index: segment.wordStart + index,
+        start: cursor,
+        end: cursor + sliceDuration,
+      });
+      cursor += sliceDuration;
+    }
+  }
+  return timings;
+}
+
+function tokenizeWords(text) {
+  return text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || [];
+}
+
+function revealTokenIfNeeded(token) {
+  if (!state.followPlayback) {
+    return;
+  }
+
+  const containerRect = els.readerContent.getBoundingClientRect();
+  const tokenRect = token.getBoundingClientRect();
+  const topPadding = 96;
+  const bottomPadding = 120;
+
+  if (
+    tokenRect.top >= containerRect.top + topPadding &&
+    tokenRect.bottom <= containerRect.bottom - bottomPadding
+  ) {
+    return;
+  }
+
+  const offsetTop = token.offsetTop - els.readerContent.clientHeight * 0.28;
+  state.readerScrollLockedUntil = Date.now() + 500;
+  els.readerContent.scrollTo({
+    top: Math.max(0, offsetTop),
+    behavior: "smooth",
+  });
+}
+
+function handleReaderManualScroll() {
+  if (Date.now() < state.readerScrollLockedUntil) {
+    return;
+  }
+  state.followPlayback = false;
+}
+
 function updateLanguagePills() {
-  const narrationLabel = languageLabels.get(els.narrationLanguage.value) || els.narrationLanguage.value;
-  const translationLabel =
-    languageLabels.get(els.translationLanguage.value) || els.translationLanguage.value;
-  els.activeLanguagePill.textContent = `Narration: ${narrationLabel}`;
-  els.translationLanguagePill.textContent = `Translate: ${translationLabel}`;
+  const chosenBookLanguage =
+    els.bookLanguage.value === "auto"
+      ? `${languageLabels.get(state.detectedBookLanguage) || state.detectedBookLanguage} detected`
+      : languageLabels.get(els.bookLanguage.value) || els.bookLanguage.value;
+  const audiobookLabel = "Portuguese (Portugal)";
+  const listenerLabel = languageLabels.get(els.listenerLanguage.value) || els.listenerLanguage.value;
+
+  els.activeLanguagePill.textContent = `Book: ${chosenBookLanguage}`;
+  els.translationLanguagePill.textContent = `Audio: ${audiobookLabel}`;
+  els.listenerLanguagePill.textContent = `You: ${listenerLabel}`;
   updateVoicePromptHint();
 }
 
@@ -652,7 +808,7 @@ function updateVoicePill() {
 }
 
 function updateVoicePromptHint() {
-  const language = els.narrationLanguage.value;
+  const language = els.audiobookLanguage.value;
   els.voiceScriptText.textContent =
     voicePromptHints[language] ||
     "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
@@ -670,7 +826,7 @@ function computeChapterWordMetrics() {
 }
 
 function countWords(text) {
-  return (text.match(/[\p{L}\p{N}]+/gu) || []).length;
+  return tokenizeWords(text).length;
 }
 
 function resolveChapterIndexForWord(globalWordIndex) {
@@ -703,8 +859,8 @@ async function translate(text) {
     },
     body: JSON.stringify({
       text,
-      source: els.narrationLanguage.value,
-      target: els.translationLanguage.value,
+      source: state.readerLanguage || state.detectedBookLanguage || els.bookLanguage.value,
+      target: els.listenerLanguage.value,
     }),
   });
 }
