@@ -17,6 +17,7 @@ const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
 const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.54);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
+const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
@@ -261,37 +262,58 @@ app.post("/api/book/extract", upload.single("bookFile"), async (req, res) => {
 });
 
 app.post("/api/voice-sample", upload.single("voiceSample"), async (req, res) => {
-  if (!req.file) {
+  let finalPath = "";
+  let metadataPath = "";
+  let sourcePath = "";
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        error: "No voice sample was uploaded.",
+      });
+    }
+
+    const id = crypto.randomUUID();
+    const fileName = `${id}.wav`;
+    finalPath = path.join(voicesDir, fileName);
+    metadataPath = path.join(voicesDir, `${id}.json`);
+    const sourceExt = extensionForMime(req.file.mimetype, req.file.originalname);
+    sourcePath = path.join(voicesDir, `${id}.source${sourceExt}`);
+
+    await fsp.rename(req.file.path, sourcePath);
+    const promptInfo = await transcodeVoiceSampleToWav(sourcePath, finalPath);
+
+    const voiceSample = {
+      id,
+      name: req.body.name?.trim() || "My Voice Sample",
+      language: normalizeLanguageCode(req.body.language?.trim() || "pt-pt"),
+      url: `/voices/${fileName}`,
+      path: finalPath,
+      originalPath: sourcePath,
+      promptDuration: promptInfo.duration,
+      builtIn: false,
+      vibe: "Uploaded custom clone sample",
+    };
+
+    registerVoiceSample(voiceSample);
+    await fsp.writeFile(metadataPath, JSON.stringify(voiceSample, null, 2), "utf8");
+
+    return res.json({
+      ok: true,
+      voiceSample: toPublicVoiceSample(voiceSample),
+    });
+  } catch (error) {
+    await Promise.allSettled([
+      req.file?.path ? fsp.rm(req.file.path, { force: true }) : Promise.resolve(),
+      sourcePath ? fsp.rm(sourcePath, { force: true }) : Promise.resolve(),
+      finalPath ? fsp.rm(finalPath, { force: true }) : Promise.resolve(),
+      metadataPath ? fsp.rm(metadataPath, { force: true }) : Promise.resolve(),
+    ]);
     return res.status(400).json({
       ok: false,
-      error: "No voice sample was uploaded.",
+      error: error.message,
     });
   }
-
-  const id = crypto.randomUUID();
-  const fileName = `${id}.wav`;
-  const finalPath = path.join(voicesDir, fileName);
-  const metadataPath = path.join(voicesDir, `${id}.json`);
-
-  await transcodeVoiceSampleToWav(req.file.path, finalPath);
-
-  const voiceSample = {
-    id,
-    name: req.body.name?.trim() || "My Voice Sample",
-    language: normalizeLanguageCode(req.body.language?.trim() || "pt-pt"),
-    url: `/voices/${fileName}`,
-    path: finalPath,
-    builtIn: false,
-    vibe: "Uploaded custom clone sample",
-  };
-
-  registerVoiceSample(voiceSample);
-  await fsp.writeFile(metadataPath, JSON.stringify(voiceSample, null, 2), "utf8");
-
-  return res.json({
-    ok: true,
-    voiceSample: toPublicVoiceSample(voiceSample),
-  });
 });
 
 app.post("/api/audiobook/generate", async (req, res) => {
@@ -751,29 +773,39 @@ function sanitizeJobLogLine(line) {
 }
 
 async function transcodeVoiceSampleToWav(inputPath, outputPath) {
-  await runCommand("ffmpeg", [
-    "-y",
-    "-i",
-    inputPath,
-    "-af",
-    [
-      "silenceremove=start_periods=1:start_silence=0.2:start_threshold=-40dB:stop_periods=-1:stop_silence=0.25:stop_threshold=-40dB",
-      "highpass=f=65",
-      "lowpass=f=14200",
-      "afftdn=nr=10:nf=-32",
-      "acompressor=threshold=-19dB:ratio=2.0:attack=8:release=75:makeup=1.5",
-      "alimiter=limit=0.96",
-    ].join(","),
-    "-ac",
-    "1",
-    "-ar",
-    "24000",
-    "-c:a",
-    "pcm_s16le",
-    outputPath,
-  ]);
+  const aggressiveFilters = [
+    "silenceremove=start_periods=1:start_silence=0.18:start_threshold=-42dB:stop_periods=-1:stop_silence=0.22:stop_threshold=-42dB",
+    "highpass=f=65",
+    "lowpass=f=14200",
+    "afftdn=nr=10:nf=-32",
+    "acompressor=threshold=-19dB:ratio=2.0:attack=8:release=75:makeup=1.5",
+    "alimiter=limit=0.96",
+  ].join(",");
+  const safeFilters = [
+    "highpass=f=65",
+    "lowpass=f=14200",
+    "afftdn=nr=8:nf=-34",
+    "acompressor=threshold=-20dB:ratio=1.8:attack=10:release=85:makeup=1.2",
+    "alimiter=limit=0.96",
+  ].join(",");
 
-  await fsp.rm(inputPath, { force: true });
+  await runFfmpegAudioTranscode(inputPath, outputPath, aggressiveFilters);
+  let audioInfo = await inspectAudioFile(outputPath);
+  if (isUsableVoicePrompt(audioInfo)) {
+    return audioInfo;
+  }
+
+  await fsp.rm(outputPath, { force: true });
+  await runFfmpegAudioTranscode(inputPath, outputPath, safeFilters);
+  audioInfo = await inspectAudioFile(outputPath);
+  if (isUsableVoicePrompt(audioInfo)) {
+    return audioInfo;
+  }
+
+  await fsp.rm(outputPath, { force: true });
+  throw new Error(
+    "Your voice sample became too short or too silent after cleanup. Record 6 to 15 seconds in a quiet room and speak continuously, then upload it again."
+  );
 }
 
 async function ensureVoiceSamplePrompt(voiceSample) {
@@ -782,16 +814,35 @@ async function ensureVoiceSamplePrompt(voiceSample) {
   }
 
   if (path.extname(voiceSample.path).toLowerCase() === ".wav" && fs.existsSync(voiceSample.path)) {
-    return voiceSample;
+    const audioInfo = await inspectAudioFile(voiceSample.path);
+    if (isUsableVoicePrompt(audioInfo)) {
+      return voiceSample;
+    }
+    if (voiceSample.originalPath && fs.existsSync(voiceSample.originalPath)) {
+      const repairedInfo = await transcodeVoiceSampleToWav(voiceSample.originalPath, voiceSample.path);
+      const repairedVoiceSample = {
+        ...voiceSample,
+        promptDuration: repairedInfo.duration,
+      };
+      registerVoiceSample(repairedVoiceSample);
+      await fsp.writeFile(
+        path.join(voicesDir, `${voiceSample.id}.json`),
+        JSON.stringify(repairedVoiceSample, null, 2),
+        "utf8"
+      );
+      return repairedVoiceSample;
+    }
+    throw new Error("Your saved voice sample is unusable now. Please record or upload it again.");
   }
 
   const normalizedPath = path.join(voicesDir, `${voiceSample.id}.wav`);
-  await transcodeVoiceSampleToWav(voiceSample.path, normalizedPath);
+  const promptInfo = await transcodeVoiceSampleToWav(voiceSample.path, normalizedPath);
 
   const normalizedVoiceSample = {
     ...voiceSample,
     path: normalizedPath,
     url: `/voices/${voiceSample.id}.wav`,
+    promptDuration: promptInfo.duration,
   };
 
   registerVoiceSample(normalizedVoiceSample);
@@ -802,6 +853,76 @@ async function ensureVoiceSamplePrompt(voiceSample) {
   );
 
   return normalizedVoiceSample;
+}
+
+async function runFfmpegAudioTranscode(inputPath, outputPath, filterChain) {
+  await runCommand("ffmpeg", [
+    "-y",
+    "-i",
+    inputPath,
+    "-af",
+    filterChain,
+    "-ac",
+    "1",
+    "-ar",
+    "24000",
+    "-c:a",
+    "pcm_s16le",
+    outputPath,
+  ]);
+}
+
+async function inspectAudioFile(audioPath) {
+  if (!fs.existsSync(audioPath)) {
+    return {
+      exists: false,
+      duration: 0,
+      size: 0,
+    };
+  }
+
+  const stats = await fsp.stat(audioPath).catch(() => ({ size: 0 }));
+  const duration = await probeAudioDuration(audioPath);
+
+  return {
+    exists: true,
+    duration,
+    size: Number(stats.size || 0),
+  };
+}
+
+function isUsableVoicePrompt(audioInfo) {
+  return Boolean(audioInfo?.exists && audioInfo.size > 2048 && audioInfo.duration >= minVoicePromptSeconds);
+}
+
+async function probeAudioDuration(audioPath) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        audioPath,
+      ],
+      {
+        cwd: rootDir,
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("close", () => {
+      const duration = Number.parseFloat(stdout.trim());
+      resolve(Number.isFinite(duration) ? duration : 0);
+    });
+  });
 }
 
 async function runCommand(command, args) {

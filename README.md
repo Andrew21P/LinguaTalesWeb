@@ -57,6 +57,7 @@ Notes:
 - `ffmpeg` must be available on your `PATH`.
 - `tesseract` should be available on your `PATH` if you want OCR from photos or scanned pages.
 - Browser-recorded voice prompts are normalized to mono `wav` automatically before cloning so Chatterbox gets a stable prompt format.
+- If cleanup trims a recording too aggressively, LinguaTales retries a safer prompt-normalization path and rejects truly unusable samples before generation.
 
 Optional Chatterbox install:
 
@@ -82,6 +83,7 @@ Optional variables:
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
 - `DEFAULT_EXAGGERATION=0.54` if you want to tune the fixed narration expressiveness default
+- `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
 
 ### 4. Run the app
 

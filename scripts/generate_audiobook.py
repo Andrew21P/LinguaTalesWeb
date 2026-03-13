@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 WORD_PATTERN = re.compile(r"[\wºª]+(?:[-'’][\wºª]+)*", re.UNICODE)
+MIN_VOICE_PROMPT_SECONDS = float(os.getenv("MIN_VOICE_PROMPT_SECONDS", "2.4"))
 MASTERING_FILTER_CHAIN = ",".join(
     [
         "highpass=f=55",
@@ -170,7 +171,19 @@ def main() -> None:
     model = load_multilingual_model(cb_mtl, torch, device)
     if args.voice_sample:
         print("PROGRESS:14|Applying your uploaded voice sample as the prompt voice.", flush=True)
-        model.prepare_conditionals(args.voice_sample, exaggeration=args.exaggeration)
+        prompt_duration = probe_audio_duration(Path(args.voice_sample))
+        if prompt_duration < MIN_VOICE_PROMPT_SECONDS:
+            raise SystemExit(
+                "Your uploaded voice sample is too short after cleanup. Record 6 to 15 seconds in a quiet room, speak continuously, and upload it again."
+            )
+        try:
+            model.prepare_conditionals(args.voice_sample, exaggeration=args.exaggeration)
+        except RuntimeError as error:
+            if "got: [1, 1, 0]" in str(error):
+                raise SystemExit(
+                    "Your uploaded voice sample became empty during prompt preparation. Re-record 6 to 15 seconds with steady speech and try again."
+                ) from error
+            raise
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
@@ -585,6 +598,30 @@ def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
         list_path.unlink(missing_ok=True)
         raw_output_path = output_path.with_name(f"{output_path.stem}.raw.wav")
         raw_output_path.unlink(missing_ok=True)
+
+
+def probe_audio_duration(audio_path: Path) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(audio_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return 0.0
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0.0
 
 
 def can_use_say_fallback() -> bool:
