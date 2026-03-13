@@ -20,6 +20,21 @@ const state = {
   defaultExaggeration: 0.42,
 };
 
+const voicePromptHints = {
+  pt: "O senhor tinha número quatro, mas a senhora tinha tempo e cuidado. Digo tudo com voz calma, natural e precisa.",
+  en: "Mr. Parker walked to number four with a calm, clear, natural voice.",
+  es: "El señor estaba en el número cuatro, con una voz clara, tranquila y natural.",
+  fr: "Monsieur Dupont arrive au numéro quatre, avec une voix calme, claire et naturelle.",
+  de: "Herr Weber kommt zu Nummer vier mit einer ruhigen, klaren und natürlichen Stimme.",
+  it: "Il signore Rossi arriva al numero quattro con una voce calma, chiara e naturale.",
+  nl: "Meneer Jansen gaat naar nummer vier met een rustige, heldere en natuurlijke stem.",
+  sv: "Herr Berg går till nummer fyra med en lugn, tydlig och naturlig röst.",
+  pl: "Doktor Kowalski mówi spokojnym, wyraźnym i naturalnym głosem przy numerze cztery.",
+  tr: "Sayin Demir numara dörtte sakin, net ve doğal bir sesle konuşuyor.",
+  zh: "请用平静、清晰、自然的声音读这一段，号码四。",
+  ja: "番号四を、落ち着いて、自然で、はっきりした声で読んでください。",
+};
+
 const els = {
   bookForm: document.querySelector("#book-form"),
   bookTitle: document.querySelector("#book-title"),
@@ -45,6 +60,7 @@ const els = {
   uploadVoiceButton: document.querySelector("#upload-voice-button"),
   voiceFile: document.querySelector("#voice-file"),
   voicePreview: document.querySelector("#voice-preview"),
+  voiceScriptText: document.querySelector("#voice-script-text"),
   recordingStatus: document.querySelector("#recording-status"),
   exaggeration: document.querySelector("#exaggeration"),
   generateButton: document.querySelector("#generate-button"),
@@ -628,10 +644,18 @@ function updateLanguagePills() {
     languageLabels.get(els.translationLanguage.value) || els.translationLanguage.value;
   els.activeLanguagePill.textContent = `Narration: ${narrationLabel}`;
   els.translationLanguagePill.textContent = `Translate: ${translationLabel}`;
+  updateVoicePromptHint();
 }
 
 function updateVoicePill() {
   els.voicePill.textContent = `Voice: ${state.selectedVoice?.name || "default"}`;
+}
+
+function updateVoicePromptHint() {
+  const language = els.narrationLanguage.value;
+  els.voiceScriptText.textContent =
+    voicePromptHints[language] ||
+    "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
 }
 
 function computeChapterWordMetrics() {

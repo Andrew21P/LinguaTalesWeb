@@ -12,6 +12,96 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+LANGUAGE_NUMBER_WORD = {
+    "pt": "número",
+    "en": "number",
+    "es": "número",
+    "fr": "numéro",
+    "de": "nummer",
+    "it": "numero",
+    "nl": "nummer",
+    "sv": "nummer",
+    "pl": "numer",
+    "tr": "numara",
+    "zh": "号码",
+    "ja": "番号",
+}
+
+LANGUAGE_ABBREVIATIONS = {
+    "pt": [
+        (r"\bSrs\.(?=\s|$)", "senhores"),
+        (r"\bSras\.(?=\s|$)", "senhoras"),
+        (r"\bSrta\.(?=\s|$)", "senhorita"),
+        (r"\bSra\.(?=\s|$)", "senhora"),
+        (r"\bSr\.(?=\s|$)", "senhor"),
+        (r"\bDra\.(?=\s|$)", "doutora"),
+        (r"\bDr\.(?=\s|$)", "doutor"),
+        (r"\bProfa\.(?=\s|$)", "professora"),
+        (r"\bProf\.(?=\s|$)", "professor"),
+    ],
+    "en": [
+        (r"\bMrs\.(?=\s|$)", "missus"),
+        (r"\bMr\.(?=\s|$)", "mister"),
+        (r"\bMs\.(?=\s|$)", "miss"),
+        (r"\bDr\.(?=\s|$)", "doctor"),
+        (r"\bProf\.(?=\s|$)", "professor"),
+    ],
+    "es": [
+        (r"\bSres\.(?=\s|$)", "señores"),
+        (r"\bSras\.(?=\s|$)", "señoras"),
+        (r"\bSrta\.(?=\s|$)", "señorita"),
+        (r"\bSra\.(?=\s|$)", "señora"),
+        (r"\bSr\.(?=\s|$)", "señor"),
+        (r"\bDra\.(?=\s|$)", "doctora"),
+        (r"\bDr\.(?=\s|$)", "doctor"),
+        (r"\bProfa\.(?=\s|$)", "profesora"),
+        (r"\bProf\.(?=\s|$)", "profesor"),
+    ],
+    "fr": [
+        (r"\bMmes\.(?=\s|$)", "mesdames"),
+        (r"\bMme\.(?=\s|$)", "madame"),
+        (r"\bMlle\.(?=\s|$)", "mademoiselle"),
+        (r"\bM\.(?=\s|$)", "monsieur"),
+        (r"\bDr\.(?=\s|$)", "docteur"),
+        (r"\bPr\.(?=\s|$)", "professeur"),
+    ],
+    "de": [
+        (r"\bHr\.(?=\s|$)", "herr"),
+        (r"\bFr\.(?=\s|$)", "frau"),
+        (r"\bDr\.(?=\s|$)", "doktor"),
+        (r"\bProf\.(?=\s|$)", "professor"),
+    ],
+    "it": [
+        (r"\bSigg\.(?=\s|$)", "signori"),
+        (r"\bSig\.ra(?=\s|$)", "signora"),
+        (r"\bSig\.(?=\s|$)", "signore"),
+        (r"\bDott\.ssa(?=\s|$)", "dottoressa"),
+        (r"\bDott\.(?=\s|$)", "dottore"),
+        (r"\bProf\.ssa(?=\s|$)", "professoressa"),
+        (r"\bProf\.(?=\s|$)", "professore"),
+    ],
+    "nl": [
+        (r"\bDhr\.(?=\s|$)", "meneer"),
+        (r"\bMevr\.(?=\s|$)", "mevrouw"),
+        (r"\bDr\.(?=\s|$)", "dokter"),
+        (r"\bProf\.(?=\s|$)", "professor"),
+    ],
+    "sv": [
+        (r"\bHr\.(?=\s|$)", "herr"),
+        (r"\bDr\.(?=\s|$)", "doktor"),
+        (r"\bProf\.(?=\s|$)", "professor"),
+    ],
+    "pl": [
+        (r"\bDr\.(?=\s|$)", "doktor"),
+        (r"\bProf\.(?=\s|$)", "profesor"),
+    ],
+    "tr": [
+        (r"\bSn\.(?=\s|$)", "sayin"),
+        (r"\bDr\.(?=\s|$)", "doktor"),
+        (r"\bProf\.(?=\s|$)", "profesör"),
+    ],
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -40,7 +130,8 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     text = input_path.read_text(encoding="utf-8")
-    segments = segment_text(text)
+    prepared_text = normalize_narration_text(text, args.language)
+    segments = segment_text(prepared_text)
 
     print("PROGRESS:10|Loading Chatterbox models.", flush=True)
 
@@ -277,7 +368,71 @@ def generate_segment_without_alignment(model, text: str, kwargs: dict):
         model.t3.hp.is_multilingual = original_flag
 
 
-def segment_text(text: str, max_chars: int = 240) -> list[NarrationSegment]:
+def normalize_narration_text(text: str, language: str) -> str:
+    language = (language or "").lower()
+    normalized = text.replace("\r\n", "\n")
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    normalized = re.sub(r"\n[ \t]+", "\n", normalized)
+    normalized = re.sub(r"[ \t]{2,}", " ", normalized)
+
+    normalized = expand_number_symbols(normalized, language)
+    normalized = expand_language_abbreviations(normalized, language)
+
+    # Prevent punctuation cleanup issues after spoken-form expansion.
+    normalized = re.sub(r"\s+([,;:.!?…])", r"\1", normalized)
+    normalized = re.sub(r"([(\[{])\s+", r"\1", normalized)
+    normalized = re.sub(r"\s{2,}", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+def expand_number_symbols(text: str, language: str) -> str:
+    language = (language or "").lower()
+    number_word = LANGUAGE_NUMBER_WORD.get(language, "number")
+    patterns = [
+        r"\bN\.\s*[º°]\.?(?=\s*\d)",
+        r"\bn\.\s*[º°]\.?(?=\s*\d)",
+        r"\bN[º°]\.?(?=\s*\d)",
+        r"\bn[º°]\.?(?=\s*\d)",
+        r"\bN\.(?=\s*\d)",
+        r"\bn\.(?=\s*\d)",
+        r"\bNo\.(?=\s*\d)",
+        r"\bno\.(?=\s*\d)",
+        r"\bNr\.(?=\s*\d)",
+        r"\bnr\.(?=\s*\d)",
+        r"№(?=\s*\d)",
+    ]
+    for pattern in patterns:
+        text = re.sub(
+            pattern,
+            lambda match: apply_source_casing(match.group(0), number_word),
+            text,
+        )
+    return text
+
+
+def expand_language_abbreviations(text: str, language: str) -> str:
+    language = (language or "").lower()
+    for pattern, replacement in LANGUAGE_ABBREVIATIONS.get(language, []):
+        text = re.sub(
+            pattern,
+            lambda match: apply_source_casing(match.group(0), replacement),
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def apply_source_casing(source: str, replacement: str) -> str:
+    letters = "".join(character for character in source if character.isalpha())
+    if len(letters) > 1 and letters.isupper():
+        return replacement.upper()
+    if letters[:1].isupper():
+        return replacement.capitalize()
+    return replacement
+
+
+def segment_text(text: str, max_chars: int = 320) -> list[NarrationSegment]:
     normalized = text.replace("\r\n", "\n").strip()
     if not normalized:
         raise SystemExit("The provided text is empty.")
@@ -291,7 +446,7 @@ def segment_text(text: str, max_chars: int = 240) -> list[NarrationSegment]:
         for clause in clauses:
             wrapped_parts = wrap_long_clause(clause["text"], max_chars)
             for part_index, part in enumerate(wrapped_parts):
-                pause_after = clause["pause_after"] if part_index == len(wrapped_parts) - 1 else 0.1
+                pause_after = clause["pause_after"] if part_index == len(wrapped_parts) - 1 else 0.03
                 narration_segments.append(
                     NarrationSegment(
                         text=part,
@@ -301,7 +456,7 @@ def segment_text(text: str, max_chars: int = 240) -> list[NarrationSegment]:
                 )
 
         if narration_segments and paragraph_index < len(paragraphs) - 1:
-            narration_segments[-1].pause_after = max(narration_segments[-1].pause_after, 0.72)
+            narration_segments[-1].pause_after = max(narration_segments[-1].pause_after, 0.28)
 
     return [segment for segment in narration_segments if segment.word_count > 0]
 
@@ -319,20 +474,20 @@ def split_paragraph_into_clauses(paragraph: str) -> list[dict]:
                 "pause_after": determine_pause(text),
             }
         )
-    return clauses or [{"text": paragraph, "pause_after": 0.42}]
+    return clauses or [{"text": paragraph, "pause_after": 0.04}]
 
 
 def determine_pause(text: str) -> float:
     stripped = text.rstrip()
     match = re.search(r"([,;:.!?…]+)[\"'”’)\]]*$", stripped)
     punctuation = match.group(1)[-1] if match else ""
-    if punctuation in ".!?…":
-        return 0.48
-    if punctuation in ":;":
-        return 0.28
-    if punctuation == ",":
+    if punctuation and punctuation in ".!?…":
         return 0.18
-    return 0.1
+    if punctuation and punctuation in ":;":
+        return 0.12
+    if punctuation == ",":
+        return 0.07
+    return 0.04
 
 
 def wrap_long_clause(sentence: str, max_chars: int) -> list[str]:
