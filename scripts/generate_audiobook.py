@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -15,11 +17,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--metadata-output", default="")
     parser.add_argument("--language", default="pt")
     parser.add_argument("--voice-sample", default="")
-    parser.add_argument("--exaggeration", type=float, default=0.7)
-    parser.add_argument("--cfg-weight", type=float, default=0.3)
+    parser.add_argument("--exaggeration", type=float, default=0.42)
+    parser.add_argument("--cfg-weight", type=float, default=0.32)
     return parser.parse_args()
+
+
+@dataclass
+class NarrationSegment:
+    text: str
+    pause_after: float
+    word_count: int
+    kind: str = "speech"
 
 
 def main() -> None:
@@ -29,7 +40,7 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     text = input_path.read_text(encoding="utf-8")
-    chunks = split_text(text)
+    segments = segment_text(text)
 
     print("PROGRESS:10|Loading Chatterbox models.", flush=True)
 
@@ -39,7 +50,7 @@ def main() -> None:
         from chatterbox import mtl_tts as cb_mtl
     except ImportError:
         if can_use_say_fallback():
-            generate_with_say_fallback(args, chunks, output_path)
+            generate_with_say_fallback(args, segments, output_path)
             print("PROGRESS:100|Audiobook finished with macOS demo voice fallback.", flush=True)
             return
 
@@ -50,32 +61,70 @@ def main() -> None:
     device = resolve_device(torch)
     print(f"PROGRESS:12|Using the official Chatterbox multilingual model on {device}.", flush=True)
     model = load_multilingual_model(cb_mtl, torch, device)
+    if args.voice_sample:
+        print("PROGRESS:14|Applying your uploaded voice sample as the prompt voice.", flush=True)
+        model.prepare_conditionals(args.voice_sample, exaggeration=args.exaggeration)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
         part_paths = []
+        alignment_segments: list[dict] = []
+        current_time = 0.0
+        current_word = 0
 
-        for index, chunk in enumerate(chunks):
-            progress = 15 + int((index / max(len(chunks), 1)) * 75)
-            print(f"PROGRESS:{progress}|Generating chunk {index + 1} of {len(chunks)}.", flush=True)
+        for index, segment in enumerate(segments):
+            progress = 15 + int((index / max(len(segments), 1)) * 75)
+            print(f"PROGRESS:{progress}|Generating segment {index + 1} of {len(segments)}.", flush=True)
 
             kwargs = {
                 "language_id": args.language,
                 "exaggeration": args.exaggeration,
                 "cfg_weight": args.cfg_weight,
             }
-            if args.voice_sample:
-                if index == 0:
-                    print("PROGRESS:14|Applying your uploaded voice sample as the prompt voice.", flush=True)
-                kwargs["audio_prompt_path"] = args.voice_sample
-
-            wav = model.generate(chunk, **kwargs)
+            wav = model.generate(segment.text, **kwargs)
             part_path = temp_dir_path / f"chunk-{index:04d}.wav"
             ta.save(str(part_path), wav, model.sr)
             part_paths.append(part_path)
 
+            segment_duration = float(wav.shape[-1] / model.sr)
+            alignment_segments.append(
+                {
+                    "text": segment.text,
+                    "start": current_time,
+                    "end": current_time + segment_duration,
+                    "wordStart": current_word,
+                    "wordEnd": current_word + segment.word_count,
+                }
+            )
+            current_time += segment_duration
+            current_word += segment.word_count
+
+            if segment.pause_after > 0:
+                pause_frames = max(1, int(round(model.sr * segment.pause_after)))
+                pause_duration = pause_frames / model.sr
+                silence = torch.zeros((1, pause_frames), dtype=wav.dtype)
+                pause_path = temp_dir_path / f"pause-{index:04d}.wav"
+                ta.save(str(pause_path), silence, model.sr)
+                part_paths.append(pause_path)
+                current_time += pause_duration
+
         print("PROGRESS:92|Combining narration chunks.", flush=True)
         combine_wavs(part_paths, output_path)
+
+        if args.metadata_output:
+            metadata_output = Path(args.metadata_output)
+            metadata_output.parent.mkdir(parents=True, exist_ok=True)
+            metadata_output.write_text(
+                json.dumps(
+                    {
+                        "segments": alignment_segments,
+                        "totalDuration": current_time,
+                        "wordCount": current_word,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
     print("PROGRESS:100|Audiobook finished.", flush=True)
 
@@ -139,43 +188,65 @@ def load_multilingual_model(cb_mtl, torch_module, device: str):
     return cb_mtl.ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, device, conds=conds)
 
 
-def split_text(text: str, max_chars: int = 900) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text).strip()
+def segment_text(text: str, max_chars: int = 240) -> list[NarrationSegment]:
+    normalized = text.replace("\r\n", "\n").strip()
     if not normalized:
         raise SystemExit("The provided text is empty.")
 
-    sentences = re.split(r"(?<=[.!?])\s+", normalized)
-    chunks: list[str] = []
-    current = ""
+    narration_segments: list[NarrationSegment] = []
+    paragraphs = [block.strip() for block in re.split(r"\n{2,}", normalized) if block.strip()]
 
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
+    for paragraph_index, paragraph in enumerate(paragraphs):
+        cleaned = re.sub(r"\s+", " ", paragraph).strip()
+        clauses = split_paragraph_into_clauses(cleaned)
+        for clause in clauses:
+            wrapped_parts = wrap_long_clause(clause["text"], max_chars)
+            for part_index, part in enumerate(wrapped_parts):
+                pause_after = clause["pause_after"] if part_index == len(wrapped_parts) - 1 else 0.1
+                narration_segments.append(
+                    NarrationSegment(
+                        text=part,
+                        pause_after=pause_after,
+                        word_count=count_words(part),
+                    )
+                )
+
+        if narration_segments and paragraph_index < len(paragraphs) - 1:
+            narration_segments[-1].pause_after = max(narration_segments[-1].pause_after, 0.72)
+
+    return [segment for segment in narration_segments if segment.word_count > 0]
+
+
+def split_paragraph_into_clauses(paragraph: str) -> list[dict]:
+    pieces = re.findall(r"[^,;:.!?…]+(?:[,;:.!?…]+|$)", paragraph)
+    clauses = []
+    for piece in pieces:
+        text = piece.strip()
+        if not text:
             continue
-
-        if len(sentence) > max_chars:
-            parts = wrap_long_sentence(sentence, max_chars)
-        else:
-            parts = [sentence]
-
-        for part in parts:
-            if not current:
-                current = part
-                continue
-
-            if len(current) + 1 + len(part) <= max_chars:
-                current = f"{current} {part}"
-            else:
-                chunks.append(current)
-                current = part
-
-    if current:
-        chunks.append(current)
-
-    return chunks
+        clauses.append(
+            {
+                "text": text,
+                "pause_after": determine_pause(text),
+            }
+        )
+    return clauses or [{"text": paragraph, "pause_after": 0.42}]
 
 
-def wrap_long_sentence(sentence: str, max_chars: int) -> list[str]:
+def determine_pause(text: str) -> float:
+    stripped = text.rstrip()
+    match = re.search(r"([,;:.!?…]+)[\"'”’)\]]*$", stripped)
+    punctuation = match.group(1)[-1] if match else ""
+    if punctuation in ".!?…":
+        return 0.48
+    if punctuation in ":;":
+        return 0.28
+    if punctuation == ",":
+        return 0.18
+    return 0.1
+
+
+def wrap_long_clause(sentence: str, max_chars: int) -> list[str]:
     words = sentence.split()
     parts: list[str] = []
     current = ""
@@ -193,6 +264,10 @@ def wrap_long_sentence(sentence: str, max_chars: int) -> list[str]:
         parts.append(current)
 
     return parts
+
+
+def count_words(text: str) -> int:
+    return len(re.findall(r"[^\W_]+", text, flags=re.UNICODE))
 
 
 def combine_wavs(part_paths: list[Path], output_path: Path) -> None:
@@ -230,7 +305,7 @@ def can_use_say_fallback() -> bool:
     return os.getenv("LINGUATALES_ENABLE_SAY_FALLBACK") == "1" and os.uname().sysname == "Darwin" and shutil.which("say") is not None
 
 
-def generate_with_say_fallback(args: argparse.Namespace, chunks: list[str], output_path: Path) -> None:
+def generate_with_say_fallback(args: argparse.Namespace, chunks: list[NarrationSegment], output_path: Path) -> None:
     say_voice = select_macos_voice(args.language)
     rate = select_macos_rate(args.cfg_weight)
 
@@ -248,11 +323,11 @@ def generate_with_say_fallback(args: argparse.Namespace, chunks: list[str], outp
 
         for index, chunk in enumerate(chunks):
             progress = 18 + int((index / max(len(chunks), 1)) * 70)
-            print(f"PROGRESS:{progress}|Generating fallback chunk {index + 1} of {len(chunks)}.", flush=True)
+            print(f"PROGRESS:{progress}|Generating fallback segment {index + 1} of {len(chunks)}.", flush=True)
 
             text_path = temp_dir_path / f"chunk-{index:04d}.txt"
             part_path = temp_dir_path / f"chunk-{index:04d}.wav"
-            text_path.write_text(chunk, encoding="utf-8")
+            text_path.write_text(chunk.text, encoding="utf-8")
 
             command = [
                 "say",
@@ -272,6 +347,28 @@ def generate_with_say_fallback(args: argparse.Namespace, chunks: list[str], outp
                 raise SystemExit(result.stderr.strip() or "macOS say failed during fallback generation.")
 
             part_paths.append(part_path)
+
+            if chunk.pause_after > 0:
+                pause_path = temp_dir_path / f"pause-{index:04d}.wav"
+                result = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        f"anullsrc=channel_layout=mono:sample_rate=22050",
+                        "-t",
+                        str(chunk.pause_after),
+                        str(pause_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    raise SystemExit(result.stderr.strip() or "ffmpeg failed while creating fallback pauses.")
+                part_paths.append(pause_path)
 
         print("PROGRESS:92|Combining narration chunks.", flush=True)
         combine_wavs(part_paths, output_path)

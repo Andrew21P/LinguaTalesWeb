@@ -16,6 +16,8 @@ const state = {
   generationPoller: null,
   currentAudioUrl: "",
   lastHighlightedGlobalIndex: -1,
+  alignmentSegments: [],
+  defaultExaggeration: 0.42,
 };
 
 const els = {
@@ -45,7 +47,6 @@ const els = {
   voicePreview: document.querySelector("#voice-preview"),
   recordingStatus: document.querySelector("#recording-status"),
   exaggeration: document.querySelector("#exaggeration"),
-  cfgWeight: document.querySelector("#cfg-weight"),
   generateButton: document.querySelector("#generate-button"),
   generationStatus: document.querySelector("#generation-status"),
   generationLabel: document.querySelector("#generation-label"),
@@ -64,7 +65,9 @@ bootstrap().catch((error) => {
 async function bootstrap() {
   const meta = await fetchJson("/api/meta");
   state.voiceSamples = meta.voiceSamples;
+  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.42;
   renderLanguageOptions(meta.languages);
+  els.exaggeration.value = String(state.defaultExaggeration);
   renderVoiceShelf();
   attachEvents();
 }
@@ -120,8 +123,10 @@ async function handleBookOpen(event) {
     state.title = payload.title || "Untitled Story";
     state.fullText = payload.text;
     state.chapters = payload.chapters || [];
+    state.alignmentSegments = [];
     computeChapterWordMetrics();
     state.currentChapterIndex = 0;
+    state.lastHighlightedGlobalIndex = -1;
 
     els.readerTitle.textContent = state.title;
     renderChapterList();
@@ -442,7 +447,6 @@ async function handleGenerateAudiobook() {
         language: els.narrationLanguage.value,
         voiceSampleId: state.selectedVoice?.builtIn ? "" : state.selectedVoice?.id || "",
         exaggeration: Number(els.exaggeration.value),
-        cfgWeight: Number(els.cfgWeight.value),
       }),
     });
 
@@ -477,6 +481,8 @@ function startGenerationPolling() {
       if (job.status === "done" && job.audioUrl) {
         clearInterval(state.generationPoller);
         state.currentAudioUrl = job.audioUrl;
+        state.alignmentSegments = job.alignment?.segments || [];
+        state.lastHighlightedGlobalIndex = -1;
         els.bookAudio.src = job.audioUrl;
         els.playToggle.disabled = false;
         els.pauseToggle.disabled = false;
@@ -512,6 +518,11 @@ function updateGenerationUi({ label, progress, logs }) {
 }
 
 function syncPlaybackHighlight() {
+  if (state.alignmentSegments.length) {
+    syncPlaybackHighlightFromAlignment();
+    return;
+  }
+
   if (!state.totalWordCount || !els.bookAudio.duration) {
     return;
   }
@@ -526,6 +537,68 @@ function syncPlaybackHighlight() {
     return;
   }
 
+  state.lastHighlightedGlobalIndex = globalIndex;
+  const chapterIndex = resolveChapterIndexForWord(globalIndex);
+
+  if (chapterIndex !== state.currentChapterIndex) {
+    state.currentChapterIndex = chapterIndex;
+    setActiveChapterButton(chapterIndex);
+    renderCurrentChapter();
+  }
+
+  state.currentChapterTokens.forEach((token) => token.classList.remove("active"));
+
+  const localIndex = globalIndex - (state.chapterWordOffsets[state.currentChapterIndex] || 0);
+  const activeToken = state.currentChapterTokens[localIndex];
+  if (activeToken) {
+    activeToken.classList.add("active");
+    activeToken.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+  }
+}
+
+function syncPlaybackHighlightFromAlignment() {
+  if (!state.totalWordCount || !els.bookAudio.duration) {
+    return;
+  }
+
+  const segment = findAlignmentSegment(els.bookAudio.currentTime);
+  if (!segment) {
+    return;
+  }
+
+  const wordsInSegment = Math.max(1, segment.wordEnd - segment.wordStart);
+  const segmentDuration = Math.max(0.001, segment.end - segment.start);
+  const progress = Math.max(0, Math.min(0.999, (els.bookAudio.currentTime - segment.start) / segmentDuration));
+  const globalIndex = Math.min(
+    segment.wordEnd - 1,
+    Math.max(segment.wordStart, segment.wordStart + Math.floor(progress * wordsInSegment))
+  );
+
+  if (globalIndex === state.lastHighlightedGlobalIndex) {
+    return;
+  }
+
+  activateWordByGlobalIndex(globalIndex);
+}
+
+function findAlignmentSegment(currentTime) {
+  let previousSegment = null;
+  for (const segment of state.alignmentSegments) {
+    if (currentTime >= segment.start && currentTime <= segment.end) {
+      return segment;
+    }
+    if (segment.end < currentTime) {
+      previousSegment = segment;
+    }
+  }
+  return previousSegment;
+}
+
+function activateWordByGlobalIndex(globalIndex) {
   state.lastHighlightedGlobalIndex = globalIndex;
   const chapterIndex = resolveChapterIndexForWord(globalIndex);
 

@@ -15,6 +15,8 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
+const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.42);
+const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
@@ -90,6 +92,14 @@ app.get("/api/meta", (_req, res) => {
     ok: true,
     languages: languageCatalog,
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
+    defaults: {
+      exaggeration: defaultExaggeration,
+      cfgWeight: defaultCfgWeight,
+    },
+    modelInfo: {
+      active: "Chatterbox Multilingual",
+      note: "Official Portuguese-capable model from the Chatterbox family.",
+    },
   });
 });
 
@@ -211,6 +221,7 @@ app.post("/api/audiobook/generate", async (req, res) => {
   await fsp.mkdir(jobDir, { recursive: true });
   const inputTextPath = path.join(jobDir, "book.txt");
   const outputWavPath = path.join(audioDir, `${id}.wav`);
+  const metadataPath = path.join(jobDir, "alignment.json");
 
   await fsp.writeFile(inputTextPath, normalizeText(text), "utf8");
 
@@ -224,10 +235,11 @@ app.post("/api/audiobook/generate", async (req, res) => {
     title: job.title,
     inputTextPath,
     outputWavPath,
+    metadataPath,
     language: language || "pt",
     voiceSamplePath: resolvedVoiceSample?.path || "",
-    exaggeration: Number(exaggeration ?? 0.7),
-    cfgWeight: Number(cfgWeight ?? 0.3),
+    exaggeration: Number(exaggeration ?? defaultExaggeration),
+    cfgWeight: Number(cfgWeight ?? defaultCfgWeight),
   }).catch(async (error) => {
     const failedJob = jobs.get(id);
     if (!failedJob) {
@@ -315,6 +327,8 @@ async function runGenerationJob(config) {
     config.inputTextPath,
     "--output",
     config.outputWavPath,
+    "--metadata-output",
+    config.metadataPath,
     "--language",
     config.language,
     "--exaggeration",
@@ -356,6 +370,9 @@ async function runGenerationJob(config) {
   job.progress = 100;
   job.logs.push("Audiobook is ready.");
   job.audioUrl = `/audio/${path.basename(config.outputWavPath)}`;
+  if (fs.existsSync(config.metadataPath)) {
+    job.alignment = JSON.parse(await fsp.readFile(config.metadataPath, "utf8"));
+  }
   await persistJob(config.jobId, job);
 }
 
@@ -505,8 +522,8 @@ function sanitizeJobLogLine(line) {
     /^Fetching \d+ files:/,
     /^loaded PerthNet/,
     /^\/Users\/.*FutureWarning:/,
-    /^\/Users\/.*return_dict_in_generate/,
-    /^\/Users\/.*torch\.backends\.cuda\.sdp_kernel/,
+    /^.*return_dict_in_generate/,
+    /^.*torch\.backends\.cuda\.sdp_kernel/,
     /^deprecate\(/,
     /^warnings\.warn\(/,
     /^self\.gen = func/,
@@ -527,6 +544,8 @@ async function transcodeVoiceSampleToWav(inputPath, outputPath) {
     "-y",
     "-i",
     inputPath,
+    "-af",
+    "silenceremove=start_periods=1:start_silence=0.2:start_threshold=-40dB:stop_periods=-1:stop_silence=0.25:stop_threshold=-40dB",
     "-ac",
     "1",
     "-ar",
