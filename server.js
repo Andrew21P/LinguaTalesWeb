@@ -15,7 +15,8 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
-const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.54);
+const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.56);
+const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.96);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.32);
 const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
 
@@ -41,6 +42,11 @@ const upload = multer({
 
 const jobs = new Map();
 const voiceRegistry = new Map();
+let chatterboxWorker = null;
+let chatterboxWorkerStdoutRemainder = "";
+let chatterboxWorkerStderrRemainder = "";
+let chatterboxWorkerActiveJob = null;
+let chatterboxWorkerQueue = Promise.resolve();
 
 const sourceLanguageCatalog = [
   { code: "auto", label: "Auto Detect" },
@@ -186,11 +192,12 @@ app.get("/api/meta", (_req, res) => {
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
     defaults: {
       exaggeration: defaultExaggeration,
+      narrationSpeed: defaultNarrationSpeed,
       cfgWeight: defaultCfgWeight,
     },
     modelInfo: {
       active: "Chatterbox Multilingual",
-      note: "Portuguese (Portugal) narration is the fully supported output today, with OCR, source-language detection, and PT-BR to PT-PT phrasing normalization in the pipeline.",
+      note: "Portuguese (Portugal) narration is the fully supported output today, with OCR, source-language detection, and a warm local Chatterbox worker for faster repeat jobs.",
     },
   });
 });
@@ -384,6 +391,7 @@ app.post("/api/audiobook/generate", async (req, res) => {
     language: normalizeLanguageCode(audiobookLanguage || "pt-pt"),
     voiceSamplePath: resolvedVoiceSample?.path || "",
     exaggeration: Number(exaggeration ?? defaultExaggeration),
+    narrationSpeed: Number(defaultNarrationSpeed),
     cfgWeight: Number(cfgWeight ?? defaultCfgWeight),
   }).catch(async (error) => {
     const failedJob = jobs.get(id);
@@ -472,6 +480,7 @@ async function runGenerationJob(config) {
   let effectiveInputTextPath = config.inputTextPath;
   const originalText = await fsp.readFile(config.inputTextPath, "utf8");
   let workingText = originalText;
+  let readerLanguage = config.sourceLanguage === "auto" ? config.language : config.sourceLanguage;
 
   if (
     config.sourceLanguage &&
@@ -499,11 +508,8 @@ async function runGenerationJob(config) {
         await persistJob(config.jobId, latestJob);
       },
     });
-  }
 
-  if (config.language === "pt-pt") {
-    job.logs.push("Normalizing Portuguese phrasing toward PT-PT before narration.");
-    workingText = normalizePortugueseForPortugal(workingText, config.sourceLanguage);
+    readerLanguage = config.language;
   }
 
   if (workingText !== originalText) {
@@ -514,30 +520,19 @@ async function runGenerationJob(config) {
 
   job.readerText = workingText;
   job.readerChapters = splitIntoChapters(workingText);
-  job.readerLanguage = config.language;
+  job.readerLanguage = readerLanguage;
   await persistJob(config.jobId, job);
 
-  const args = [
-    path.join(rootDir, "scripts", "generate_audiobook.py"),
-    "--input",
-    effectiveInputTextPath,
-    "--output",
-    config.outputWavPath,
-    "--metadata-output",
-    config.metadataPath,
-    "--language",
-    normalizeNarrationModelLanguage(config.language),
-    "--exaggeration",
-    String(config.exaggeration),
-    "--cfg-weight",
-    String(config.cfgWeight),
-  ];
-
-  if (config.voiceSamplePath) {
-    args.push("--voice-sample", config.voiceSamplePath);
-  }
-
-  await runPythonStreaming(args, {
+  await runChatterboxGeneration({
+    inputTextPath: effectiveInputTextPath,
+    outputWavPath: config.outputWavPath,
+    metadataPath: config.metadataPath,
+    language: config.language,
+    voiceSamplePath: config.voiceSamplePath,
+    exaggeration: config.exaggeration,
+    narrationSpeed: config.narrationSpeed,
+    cfgWeight: config.cfgWeight,
+  }, {
     onLine: async (line) => {
       const latestJob = jobs.get(config.jobId);
       if (!latestJob) {
@@ -659,6 +654,191 @@ async function runPythonStreaming(args, handlers = {}) {
       resolve();
     });
   });
+}
+
+function buildGenerateAudiobookArgs(config) {
+  const args = [
+    path.join(rootDir, "scripts", "generate_audiobook.py"),
+    "--input",
+    config.inputTextPath,
+    "--output",
+    config.outputWavPath,
+    "--metadata-output",
+    config.metadataPath,
+    "--language",
+    normalizeNarrationModelLanguage(config.language),
+    "--exaggeration",
+    String(config.exaggeration),
+    "--speed",
+    String(config.narrationSpeed),
+    "--cfg-weight",
+    String(config.cfgWeight),
+  ];
+
+  if (config.voiceSamplePath) {
+    args.push("--voice-sample", config.voiceSamplePath);
+  }
+
+  return args;
+}
+
+async function runChatterboxGeneration(config, handlers = {}) {
+  try {
+    await runWarmChatterboxJob(
+      {
+        input: config.inputTextPath,
+        output: config.outputWavPath,
+        metadata_output: config.metadataPath,
+        language: normalizeNarrationModelLanguage(config.language),
+        voice_sample: config.voiceSamplePath || "",
+        exaggeration: config.exaggeration,
+        speed: config.narrationSpeed,
+        cfg_weight: config.cfgWeight,
+      },
+      handlers
+    );
+  } catch (error) {
+    if (!String(error.code || "").startsWith("WORKER_")) {
+      throw error;
+    }
+    if (handlers.onLine) {
+      await handlers.onLine("Warm Chatterbox worker restarted. Falling back to one-shot generation for this job.", "worker");
+    }
+    await runPythonStreaming(buildGenerateAudiobookArgs(config), handlers);
+  }
+}
+
+function ensureWarmChatterboxWorker() {
+  if (chatterboxWorker && chatterboxWorker.exitCode === null && !chatterboxWorker.killed) {
+    return chatterboxWorker;
+  }
+
+  chatterboxWorkerStdoutRemainder = "";
+  chatterboxWorkerStderrRemainder = "";
+  chatterboxWorker = spawn(pythonBin, [path.join(rootDir, "scripts", "chatterbox_worker.py")], {
+    cwd: rootDir,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  chatterboxWorker.stdout.on("data", async (chunk) => {
+    chatterboxWorkerStdoutRemainder = await consumeWarmWorkerBuffer(
+      chatterboxWorkerStdoutRemainder + chunk.toString(),
+      "stdout"
+    );
+  });
+
+  chatterboxWorker.stderr.on("data", async (chunk) => {
+    chatterboxWorkerStderrRemainder = await consumeWarmWorkerBuffer(
+      chatterboxWorkerStderrRemainder + chunk.toString(),
+      "stderr"
+    );
+  });
+
+  chatterboxWorker.on("close", async (code) => {
+    const activeJob = chatterboxWorkerActiveJob;
+    chatterboxWorker = null;
+    chatterboxWorkerActiveJob = null;
+
+    if (chatterboxWorkerStdoutRemainder) {
+      await dispatchWarmWorkerLine(chatterboxWorkerStdoutRemainder.trim(), "stdout");
+      chatterboxWorkerStdoutRemainder = "";
+    }
+    if (chatterboxWorkerStderrRemainder) {
+      await dispatchWarmWorkerLine(chatterboxWorkerStderrRemainder.trim(), "stderr");
+      chatterboxWorkerStderrRemainder = "";
+    }
+
+    if (activeJob) {
+      const error = new Error(`Chatterbox worker exited unexpectedly with code ${code ?? "unknown"}.`);
+      error.code = "WORKER_EXITED";
+      activeJob.reject(error);
+    }
+  });
+
+  return chatterboxWorker;
+}
+
+async function consumeWarmWorkerBuffer(buffer, sourceName) {
+  const lines = buffer.split(/\r?\n/);
+  const remainder = lines.pop() || "";
+  for (const line of lines) {
+    await dispatchWarmWorkerLine(line.trim(), sourceName);
+  }
+  return remainder;
+}
+
+async function dispatchWarmWorkerLine(line, sourceName) {
+  if (!line) {
+    return;
+  }
+
+  const activeJob = chatterboxWorkerActiveJob;
+  if (!activeJob) {
+    return;
+  }
+
+  if (sourceName === "stdout") {
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "progress") {
+        if (activeJob.handlers.onLine) {
+          await activeJob.handlers.onLine(`PROGRESS:${event.percent}|${event.message}`, "worker");
+        }
+        return;
+      }
+      if (event.type === "log") {
+        if (activeJob.handlers.onLine) {
+          await activeJob.handlers.onLine(event.message, "worker");
+        }
+        return;
+      }
+      if (event.type === "done") {
+        chatterboxWorkerActiveJob = null;
+        activeJob.resolve();
+        return;
+      }
+      if (event.type === "error") {
+        const error = new Error(event.message || "Audiobook generation failed.");
+        error.code = "JOB_FAILED";
+        chatterboxWorkerActiveJob = null;
+        activeJob.reject(error);
+        return;
+      }
+    } catch {
+      // Treat non-JSON stdout as a plain log line.
+    }
+  }
+
+  if (activeJob.handlers.onLine) {
+    await activeJob.handlers.onLine(line, sourceName);
+  }
+}
+
+async function runWarmChatterboxJob(payload, handlers = {}) {
+  const queuedRun = chatterboxWorkerQueue.then(
+    () =>
+      new Promise((resolve, reject) => {
+        const worker = ensureWarmChatterboxWorker();
+        chatterboxWorkerActiveJob = { resolve, reject, handlers };
+        worker.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+          if (!error) {
+            return;
+          }
+          const activeJob = chatterboxWorkerActiveJob;
+          chatterboxWorkerActiveJob = null;
+          const workerError = new Error(error.message);
+          workerError.code = "WORKER_WRITE_FAILED";
+          if (activeJob) {
+            activeJob.reject(workerError);
+          } else {
+            reject(workerError);
+          }
+        });
+      })
+  );
+
+  chatterboxWorkerQueue = queuedRun.catch(() => {});
+  return queuedRun;
 }
 
 function normalizeText(text) {

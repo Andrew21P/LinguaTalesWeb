@@ -15,7 +15,7 @@ LinguaTales is a local-first audiobook web app: paste text or upload a `PDF`, `E
 - Text paste, `PDF`, `EPUB`, `TXT`, and image ingestion
 - OCR for scanned pages and book photos with free local tooling
 - In-browser voice recording and audio sample upload
-- PT-PT-first audiobook generation pipeline with source-language detection, optional translation, and PT-BR to PT-PT phrasing normalization before narration
+- PT-PT-first audiobook generation pipeline with source-language detection, optional translation, and warm-model reuse for faster repeat generations
 - Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation
 - Audio mastering after synthesis for a cleaner, crisper final export
@@ -82,7 +82,8 @@ Optional variables:
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=mymemory` to fall back to the free MyMemory API
-- `DEFAULT_EXAGGERATION=0.54` if you want to tune the fixed narration expressiveness default
+- `DEFAULT_EXAGGERATION=0.56` if you want to tune the fixed narration expressiveness default
+- `DEFAULT_NARRATION_SPEED=0.96` if you want to tune the default rendered narration tempo
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
 
 ### 4. Run the app
@@ -108,7 +109,7 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 ## Language support
 
 - Fully supported narration target right now: `Portuguese (Portugal)`.
-- Books can still come from other languages. The app can detect the source language, translate into Portuguese when needed, and normalize PT-BR phrasing toward PT-PT before narration.
+- Books can still come from other languages. The app can detect the source language and translate into Portuguese when needed.
 - The listener language is separate from the audiobook language so inline translations can stay personalized.
 
 ## Notes about translation
@@ -126,4 +127,4 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 
 This project uses the official Python package interface from Resemble AI's Chatterbox repository. The generation script targets `ChatterboxMultilingualTTS`, which supports Portuguese as `pt`, and falls back to a macOS demo voice only when the host machine cannot install the official Chatterbox runtime.
 
-LinguaTales now keeps expressiveness fixed in the product and nudges it slightly more lively by default, while also running a light mastering chain after synthesis for a cleaner final export.
+LinguaTales keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses a warm local Chatterbox worker to avoid repeated model loads, and runs a light mastering chain after synthesis for a cleaner final export.

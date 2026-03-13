@@ -29,7 +29,7 @@ const state = {
   readerScrollLockedUntil: 0,
   selectionTranslateTimer: 0,
   lastSelectionText: "",
-  defaultExaggeration: 0.54,
+  defaultExaggeration: 0.56,
 };
 
 const voicePromptHints = {
@@ -85,7 +85,7 @@ bootstrap().catch((error) => {
 async function bootstrap() {
   const meta = await fetchJson("/api/meta");
   state.voiceSamples = meta.voiceSamples;
-  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.54;
+  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.56;
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
@@ -203,7 +203,7 @@ function renderSupportedLanguages(languages) {
       (language) => `
         <div class="support-item">
           <strong>${escapeHtml(language.label)}</strong>
-          <span>Voice cloning, aligned reading, OCR intake, and PT-BR to PT-PT phrasing cleanup before narration.</span>
+          <span>Voice cloning, aligned reading, OCR intake, and translation-aware narration workflow.</span>
         </div>
       `
     )
