@@ -11,12 +11,14 @@ const state = {
   selectedVoice: null,
   currentBook: null,
   currentPage: null,
+  previewPage: null,
   currentPageIndex: 0,
   detectedBookLanguage: "auto",
   readerLanguage: "auto",
   alignmentSegments: [],
   alignmentWordTimings: [],
   currentTokens: [],
+  lookupTokens: [],
   totalWordCount: 0,
   currentAudioUrl: "",
   lastHighlightedGlobalIndex: -1,
@@ -34,6 +36,7 @@ const state = {
   progressSaveTimer: 0,
   bookImporting: false,
   readerTurnTimer: 0,
+  previewRequestToken: 0,
 };
 
 const els = {
@@ -92,7 +95,9 @@ const els = {
   pageNext: document.querySelector("#page-next"),
   readerPage: document.querySelector("#reader-page"),
   readerContent: document.querySelector("#reader-content"),
+  readerContentNext: document.querySelector("#reader-content-next"),
   pageFooterNumber: document.querySelector("#page-footer-number"),
+  pageFooterNumberNext: document.querySelector("#page-footer-number-next"),
   bookAudio: document.querySelector("#book-audio"),
   selectionTranslation: document.querySelector("#selection-translation"),
   saveWordButton: document.querySelector("#save-word-button"),
@@ -234,9 +239,11 @@ async function handleLogout() {
   state.libraryBooks = [];
   state.currentBook = null;
   state.currentPage = null;
+  state.previewPage = null;
   state.savedWords = [];
   state.lookup = null;
   state.currentTokens = [];
+  state.lookupTokens = [];
   state.activeLookupSourceNormalized = "";
   els.bookAudio.pause();
   els.bookAudio.removeAttribute("src");
@@ -546,6 +553,7 @@ function renderReaderShell() {
   const hasBook = Boolean(state.currentBook && state.currentPage);
   const totalPages = state.currentBook?.totalPages || state.currentBook?.pages?.length || 0;
   const currentPageNumber = hasBook ? state.currentPageIndex + 1 : 0;
+  const nextPageNumber = hasBook && currentPageNumber < totalPages ? currentPageNumber + 1 : 0;
   const percent = hasBook ? getBookProgressPercent(state.currentBook) : 0;
 
   els.readerBookCover.innerHTML = hasBook ? renderCoverMarkup(state.currentBook.coverUrl, state.currentBook.title) : "VX";
@@ -557,6 +565,7 @@ function renderReaderShell() {
   els.readerPageLabel.textContent = hasBook ? `Page ${currentPageNumber} of ${totalPages}` : "Page 0 of 0";
   els.readerProgressFill.style.width = `${percent}%`;
   els.pageFooterNumber.textContent = hasBook ? `Page ${currentPageNumber}` : "Page 0";
+  els.pageFooterNumberNext.textContent = nextPageNumber ? `Page ${nextPageNumber}` : "End";
   els.goToPageInput.value = hasBook ? String(currentPageNumber) : "";
   els.goToPageInput.max = String(totalPages || 1);
   els.pagePrev.disabled = !hasBook || state.currentPageIndex <= 0;
@@ -568,6 +577,8 @@ function renderReaderShell() {
   if (!hasBook) {
     els.readerContent.classList.add("empty-state");
     els.readerContent.textContent = "Open a book from your shelf to enter the reader.";
+    els.readerContentNext.classList.add("empty-state");
+    els.readerContentNext.textContent = "The next page will appear here.";
     setTransportAvailability(false);
     updateGenerationUi({
       label: "Open a page to begin.",
@@ -607,6 +618,7 @@ function applyBookPage(book, page, options = {}) {
 
   state.currentBook = book;
   state.currentPage = page;
+  state.previewPage = null;
   state.currentPageIndex = page.index;
   state.detectedBookLanguage = book.detectedLanguage || "auto";
   state.readerLanguage = page.translatedText ? book.audiobookLanguage || "pt-pt" : book.detectedLanguage || "auto";
@@ -617,7 +629,8 @@ function applyBookPage(book, page, options = {}) {
   state.followPlayback = true;
   syncBookSummaryPage(page);
   renderReaderShell();
-  renderReaderContent(page.displayText || page.sourceText || "");
+  renderCurrentReaderContent(page.displayText || page.sourceText || "");
+  renderPreviewPlaceholder();
   if (!options.skipAnimate) {
     animatePageTurn(options.turnDirection || "");
   }
@@ -672,19 +685,36 @@ function applyBookPage(book, page, options = {}) {
   }
 
   switchView("reader");
+  void loadPreviewPageForCurrentSpread();
 }
 
-function renderReaderContent(text) {
+function renderCurrentReaderContent(text) {
+  state.lookupTokens = [];
+  state.currentTokens = renderReaderContentInto(els.readerContent, text, "current");
+  state.totalWordCount = state.currentTokens.length;
+  applyLookupHighlight();
+}
+
+function renderPreviewPageContent(text) {
+  renderReaderContentInto(els.readerContentNext, text, "next");
+  applyLookupHighlight();
+}
+
+function renderPreviewPlaceholder(message = "The next page will appear here.") {
+  state.previewPage = null;
+  renderReaderContentInto(els.readerContentNext, "", "next", message);
+  applyLookupHighlight();
+}
+
+function renderReaderContentInto(container, text, pageRole, emptyMessage = "This page has no text yet.") {
   if (!text.trim()) {
-    els.readerContent.classList.add("empty-state");
-    els.readerContent.textContent = "This page has no text yet.";
-    state.currentTokens = [];
-    state.totalWordCount = 0;
-    return;
+    container.classList.add("empty-state");
+    container.textContent = emptyMessage;
+    return [];
   }
 
-  els.readerContent.classList.remove("empty-state");
-  els.readerContent.innerHTML = "";
+  container.classList.remove("empty-state");
+  container.innerHTML = "";
 
   const article = document.createElement("article");
   article.className = "reader-article";
@@ -693,8 +723,8 @@ function renderReaderContent(text) {
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 
-  state.currentTokens = [];
-  let globalIndex = 0;
+  const tokensForRole = [];
+  let globalIndex = pageRole === "current" ? 0 : -1;
 
   paragraphs.forEach((paragraph) => {
     const p = document.createElement("p");
@@ -704,14 +734,20 @@ function renderReaderContent(text) {
         const span = document.createElement("span");
         span.className = "token";
         span.textContent = token.value;
-        span.dataset.globalIndex = String(globalIndex);
+        span.dataset.pageRole = pageRole;
         span.dataset.normalized = normalizeComparableText(token.value);
+        if (pageRole === "current") {
+          span.dataset.globalIndex = String(globalIndex);
+        }
         if (isSavedSingleWord(token.value)) {
           span.classList.add("is-saved");
         }
-        span.addEventListener("click", () => void handleWordLookup(token.value));
-        state.currentTokens.push(span);
-        globalIndex += 1;
+        span.addEventListener("click", () => void handleWordLookup(token.value, pageRole));
+        tokensForRole.push(span);
+        state.lookupTokens.push(span);
+        if (pageRole === "current") {
+          globalIndex += 1;
+        }
         p.append(span);
       } else {
         p.append(document.createTextNode(token.value));
@@ -720,9 +756,53 @@ function renderReaderContent(text) {
     article.append(p);
   });
 
-  state.totalWordCount = globalIndex;
-  els.readerContent.append(article);
-  applyLookupHighlight();
+  container.append(article);
+  return tokensForRole;
+}
+
+async function loadPreviewPageForCurrentSpread() {
+  const book = state.currentBook;
+  if (!book?.pages?.length) {
+    renderPreviewPlaceholder();
+    return;
+  }
+
+  const nextPageIndex = state.currentPageIndex + 1;
+  if (nextPageIndex >= book.pages.length) {
+    renderPreviewPlaceholder("You are at the end of this book.");
+    return;
+  }
+
+  const requestToken = state.previewRequestToken + 1;
+  state.previewRequestToken = requestToken;
+  renderPreviewPlaceholder("Loading the next page...");
+
+  try {
+    const payload = await fetchJson(`/api/books/${book.id}/pages/${nextPageIndex}`);
+    if (
+      requestToken !== state.previewRequestToken ||
+      state.currentBook?.id !== book.id ||
+      state.currentPageIndex + 1 !== nextPageIndex
+    ) {
+      return;
+    }
+
+    state.previewPage = payload.page;
+    renderPreviewPageContent(payload.page.displayText || payload.page.sourceText || "");
+    els.pageFooterNumberNext.textContent = `Page ${payload.page.index + 1}`;
+  } catch {
+    if (requestToken !== state.previewRequestToken) {
+      return;
+    }
+    renderPreviewPlaceholder("The next page preview could not be loaded yet.");
+  }
+}
+
+function getPageTextByRole(pageRole) {
+  if (pageRole === "next") {
+    return state.previewPage?.displayText || state.previewPage?.sourceText || "";
+  }
+  return state.currentPage?.displayText || state.currentPage?.sourceText || "";
 }
 
 function tokenizeParagraph(paragraph) {
@@ -744,7 +824,7 @@ function tokenizeParagraph(paragraph) {
 }
 
 function applyLookupHighlight() {
-  state.currentTokens.forEach((token) => {
+  state.lookupTokens.forEach((token) => {
     token.classList.toggle("is-looked-up", Boolean(state.activeLookupSourceNormalized) && token.dataset.normalized === state.activeLookupSourceNormalized);
     token.classList.toggle("is-saved", isSavedSingleWord(token.textContent || ""));
   });
@@ -808,7 +888,10 @@ async function handleDeleteBook(bookId) {
     if (state.currentBook?.id === bookId) {
       state.currentBook = null;
       state.currentPage = null;
+      state.previewPage = null;
       state.currentPageIndex = 0;
+      state.currentTokens = [];
+      state.lookupTokens = [];
       state.activeLookupSourceNormalized = "";
       state.lookup = null;
       els.bookAudio.pause();
@@ -1322,37 +1405,48 @@ async function saveProgress() {
 function scheduleSelectionTranslate() {
   clearTimeout(state.selectionTranslateTimer);
   state.selectionTranslateTimer = window.setTimeout(async () => {
-    const text = getActiveReaderSelectionText();
-    if (!text || text === state.lastSelectionText) {
+    const selection = getActiveReaderSelection();
+    if (!selection.text || selection.text === state.lastSelectionText) {
       return;
     }
-    state.lastSelectionText = text;
-    await handleSelectionLookup(text);
+    state.lastSelectionText = selection.text;
+    await handleSelectionLookup(selection.text, selection.pageRole);
   }, 140);
 }
 
-function getActiveReaderSelectionText() {
+function getActiveReaderSelection() {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) {
     state.lastSelectionText = "";
-    return "";
+    return { text: "", pageRole: "current" };
   }
 
   const text = selection.toString().trim();
   if (!text || text.length < 2 || text.length > 220) {
-    return "";
+    return { text: "", pageRole: "current" };
   }
 
-  const anchorInReader = els.readerContent.contains(selection.anchorNode);
-  const focusInReader = els.readerContent.contains(selection.focusNode);
-  if (!anchorInReader && !focusInReader) {
-    return "";
+  const anchorRole = getReaderRoleForNode(selection.anchorNode);
+  const focusRole = getReaderRoleForNode(selection.focusNode);
+  if (!anchorRole || !focusRole || anchorRole !== focusRole) {
+    return { text: "", pageRole: "current" };
   }
 
-  return text;
+  return { text, pageRole: anchorRole };
 }
 
-async function handleWordLookup(word) {
+function getReaderRoleForNode(node) {
+  if (!node) {
+    return "";
+  }
+
+  const element =
+    node instanceof HTMLElement ? node : node.parentElement instanceof HTMLElement ? node.parentElement : null;
+  const container = element?.closest?.(".reader-content");
+  return container?.dataset?.pageRole || "";
+}
+
+async function handleWordLookup(word, pageRole = "current") {
   state.activeLookupSourceNormalized = normalizeComparableText(word);
   applyLookupHighlight();
   try {
@@ -1361,16 +1455,17 @@ async function handleWordLookup(word) {
     setLookupValue({
       source: word,
       translatedText: payload.translatedText,
-      context: buildContextSnippet(word),
+      context: buildContextSnippet(word, pageRole),
       sourceLanguage: state.readerLanguage,
       targetLanguage: els.listenerLanguage.value,
+      pageIndex: pageRole === "next" ? state.previewPage?.index ?? state.currentPageIndex : state.currentPageIndex,
     });
   } catch (error) {
     setLookupError(error.message, word);
   }
 }
 
-async function handleSelectionLookup(text) {
+async function handleSelectionLookup(text, pageRole = "current") {
   state.activeLookupSourceNormalized = "";
   applyLookupHighlight();
   try {
@@ -1379,9 +1474,10 @@ async function handleSelectionLookup(text) {
     setLookupValue({
       source: text,
       translatedText: payload.translatedText,
-      context: buildContextSnippet(text),
+      context: buildContextSnippet(text, pageRole),
       sourceLanguage: state.readerLanguage,
       targetLanguage: els.listenerLanguage.value,
+      pageIndex: pageRole === "next" ? state.previewPage?.index ?? state.currentPageIndex : state.currentPageIndex,
     });
   } catch (error) {
     setLookupError(error.message, text);
@@ -1446,8 +1542,8 @@ function renderLookupPanel() {
   els.saveWordButton.textContent = /\s/u.test(lookup.source || "") ? "Save phrase" : "Save word";
 }
 
-function buildContextSnippet(source) {
-  const baseText = state.currentPage?.displayText || state.currentPage?.sourceText || "";
+function buildContextSnippet(source, pageRole = "current") {
+  const baseText = getPageTextByRole(pageRole);
   if (!baseText || !source) {
     return "";
   }
@@ -1483,7 +1579,7 @@ async function saveCurrentLookup() {
         targetLanguage: state.lookup.targetLanguage || els.listenerLanguage.value,
         bookId: state.currentBook?.id || "",
         bookTitle: state.currentBook?.title || "",
-        pageIndex: state.currentPageIndex,
+        pageIndex: Number.isInteger(state.lookup.pageIndex) ? state.lookup.pageIndex : state.currentPageIndex,
         context: state.lookup.context || "",
       }),
     });
@@ -1538,6 +1634,7 @@ function renderSavedWords() {
         context: entry.context || "",
         sourceLanguage: entry.sourceLanguage,
         targetLanguage: entry.targetLanguage,
+        pageIndex: entry.pageIndex,
         isError: false,
         pending: false,
       };

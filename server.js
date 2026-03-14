@@ -20,7 +20,7 @@ const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.52);
 const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.78);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.28);
 const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
-const readyPageWindow = Math.max(1, Number(process.env.READY_PAGE_WINDOW || 3));
+const readyPageWindow = Math.max(1, Number(process.env.READY_PAGE_WINDOW || 6));
 
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, "public");
@@ -2479,6 +2479,53 @@ function getPublicProfile() {
   };
 }
 
+async function atomicWriteTextFile(filePath, contents) {
+  const directory = path.dirname(filePath);
+  await fsp.mkdir(directory, { recursive: true });
+  const tempPath = path.join(
+    directory,
+    `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.tmp`
+  );
+  await fsp.writeFile(tempPath, contents, "utf8");
+  await fsp.rename(tempPath, filePath);
+}
+
+async function readTextFileWithRetries(filePath, attempts = 4) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fsp.readFile(filePath, "utf8");
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts - 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 35 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error(`Unable to read ${filePath}.`);
+}
+
+function parseJsonWithTrailingTrim(text, maxTrimCharacters = 32) {
+  const normalized = String(text || "").trimEnd();
+  let candidate = normalized;
+  let lastError = null;
+
+  for (let trimCount = 0; trimCount <= maxTrimCharacters && candidate; trimCount += 1) {
+    try {
+      return {
+        value: JSON.parse(candidate),
+        repaired: trimCount > 0,
+      };
+    } catch (error) {
+      lastError = error;
+      candidate = candidate.slice(0, -1).trimEnd();
+    }
+  }
+
+  throw lastError || new Error("Unable to parse JSON.");
+}
+
 function loadUserPreferences() {
   const fallback = {
     sourceLanguage: "auto",
@@ -2557,7 +2604,7 @@ function normalizeSavedWordEntry(entry) {
 }
 
 async function persistUserPreferences() {
-  await fsp.writeFile(preferencesPath, JSON.stringify(userPreferences, null, 2), "utf8");
+  await atomicWriteTextFile(preferencesPath, JSON.stringify(userPreferences, null, 2));
 }
 
 function parseCookies(cookieHeader = "") {
@@ -2692,9 +2739,9 @@ async function readLibraryBook(bookId) {
     if (!fs.existsSync(metadataPath)) {
       return null;
     }
-    const book = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
-    const { book: sanitizedBook, changed } = await sanitizeLibraryBookState(book);
-    if (changed) {
+    const parsedBook = parseJsonWithTrailingTrim(await readTextFileWithRetries(metadataPath));
+    const { book: sanitizedBook, changed } = await sanitizeLibraryBookState(parsedBook.value);
+    if (changed || parsedBook.repaired) {
       await persistLibraryBook(sanitizedBook);
       await persistLibraryDerivedTexts(sanitizedBook);
     }
@@ -2708,14 +2755,14 @@ async function persistLibraryBook(book) {
   const bookDir = getLibraryBookDir(book.id);
   await fsp.mkdir(bookDir, { recursive: true });
   book.updatedAt = new Date().toISOString();
-  await fsp.writeFile(getLibraryBookMetadataPath(book.id), JSON.stringify(book, null, 2), "utf8");
+  await atomicWriteTextFile(getLibraryBookMetadataPath(book.id), JSON.stringify(book, null, 2));
 }
 
 async function persistLibraryDerivedTexts(book) {
   const bookDir = getLibraryBookDir(book.id);
   await fsp.mkdir(bookDir, { recursive: true });
   const originalText = normalizeText(book.pages.map((page) => page.originalText).join("\n\n"));
-  await fsp.writeFile(path.join(bookDir, "original.txt"), originalText, "utf8");
+  await atomicWriteTextFile(path.join(bookDir, "original.txt"), originalText);
 
   const translatedPages = book.pages.some((page) => page.translatedText?.trim());
   if (!translatedPages) {
@@ -2723,7 +2770,7 @@ async function persistLibraryDerivedTexts(book) {
   }
 
   const translatedText = normalizeText(book.pages.map((page) => page.translatedText || page.originalText).join("\n\n"));
-  await fsp.writeFile(path.join(bookDir, `translated.${book.audiobookLanguage}.txt`), translatedText, "utf8");
+  await atomicWriteTextFile(path.join(bookDir, `translated.${book.audiobookLanguage}.txt`), translatedText);
 }
 
 function paginateBookText(text, pageWordLimit = 190, pageCharLimit = 1150) {

@@ -294,11 +294,24 @@
                 <div id="reader-page" class="reader-page">
                   <div class="book-gutter"></div>
                   <div class="page-grain"></div>
-                  <div id="reader-content" class="reader-content empty-state">
-                    Open a book from your shelf to enter the reader.
-                  </div>
-                  <div class="page-footer">
-                    <span id="page-footer-number">Page 0</span>
+                  <div class="reader-spread">
+                    <section class="reader-sheet reader-sheet-left">
+                      <div id="reader-content" class="reader-content empty-state" data-page-role="current">
+                        Open a book from your shelf to enter the reader.
+                      </div>
+                      <div class="page-footer">
+                        <span id="page-footer-number">Page 0</span>
+                      </div>
+                    </section>
+
+                    <section class="reader-sheet reader-sheet-right">
+                      <div id="reader-content-next" class="reader-content reader-content-preview empty-state" data-page-role="next">
+                        The next page will appear here.
+                      </div>
+                      <div class="page-footer">
+                        <span id="page-footer-number-next">Page 0</span>
+                      </div>
+                    </section>
                   </div>
                 </div>
 

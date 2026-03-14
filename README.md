@@ -100,7 +100,7 @@ Optional variables:
 - `DEFAULT_NARRATION_SPEED=0.78` if you want to tune the default rendered narration tempo
 - `PIPER_LENGTH_SCALE=1.22` if you want the built-in PT-PT Piper voice to speak a touch slower and fuller
 - `DEFAULT_CFG_WEIGHT=0.28` if you want a slightly calmer multilingual Chatterbox guidance setting
-- `READY_PAGE_WINDOW=3` if you want Voxenor to keep more or fewer upcoming pages warming in the background
+- `READY_PAGE_WINDOW=6` if you want Voxenor to keep more or fewer upcoming pages warming in the background
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
 - `APP_ACCOUNT_*` values if you want to change the temporary local account and profile preferences
 
