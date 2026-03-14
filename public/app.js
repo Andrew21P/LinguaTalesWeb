@@ -41,6 +41,7 @@ const state = {
   pageOpening: false,
   pageOpenRequestToken: 0,
   currentDeletingBookId: "",
+  autoplayPending: false,
 };
 
 const els = {
@@ -162,7 +163,18 @@ function attachEvents() {
   els.saveWordButton.addEventListener("click", () => void saveCurrentLookup());
 
   els.bookAudio.addEventListener("play", startPlaybackTracking);
-  els.bookAudio.addEventListener("pause", stopPlaybackTracking);
+  els.bookAudio.addEventListener("play", () => {
+    state.autoplayPending = false;
+    if (state.currentPage) {
+      updateGenerationUiFromPage(state.currentPage);
+    }
+  });
+  els.bookAudio.addEventListener("pause", () => {
+    stopPlaybackTracking();
+    if (state.currentPage) {
+      updateGenerationUiFromPage(state.currentPage);
+    }
+  });
   els.bookAudio.addEventListener("ended", () => void handleAudioEnded());
   els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
   els.bookAudio.addEventListener("timeupdate", scheduleProgressSave);
@@ -612,7 +624,7 @@ function renderReaderShell() {
     updateGenerationUi({
       label: "Open a page to begin.",
       progress: 0,
-      logs: ["Choose a book from your library, then generate audio for the page you want to hear."],
+      logs: ["Choose a book from your library, then Voxenor will start preparing the visible reading pages automatically."],
     });
   }
 }
@@ -632,8 +644,25 @@ async function openBookPage(pageIndex, options = {}) {
   }
 
   const safePageIndex = Math.max(0, Math.min((state.currentBook.pages || []).length - 1, pageIndex));
+  const canPromotePreview =
+    options.preferPreview !== false &&
+    state.previewPage &&
+    state.previewPage.index === safePageIndex &&
+    state.currentBook?.id;
+
+  if (canPromotePreview) {
+    state.autoplayPending = Boolean(options.autoplay);
+    applyBookPage(state.currentBook, state.previewPage, {
+      ...options,
+      skipAnimate: false,
+    });
+    await saveProgress();
+    return;
+  }
+
   const requestToken = state.pageOpenRequestToken + 1;
   state.pageOpenRequestToken = requestToken;
+  state.autoplayPending = Boolean(options.autoplay);
   showReaderPageOverlay(`Opening page ${safePageIndex + 1}...`, "Voxenor is loading the text and current page state.");
   setReaderStageStatus(`Opening page ${safePageIndex + 1}...`, { loading: true });
 
@@ -648,6 +677,7 @@ async function openBookPage(pageIndex, options = {}) {
     if (requestToken !== state.pageOpenRequestToken) {
       return;
     }
+    state.autoplayPending = false;
     setReaderStageStatus(error.message, { loading: false });
     throw error;
   } finally {
@@ -660,14 +690,23 @@ async function openBookPage(pageIndex, options = {}) {
 function applyBookPage(book, page, options = {}) {
   const preserveViewport = Boolean(options.preserveViewport);
   const preservePlaybackState = Boolean(options.preservePlaybackState);
+  const previousPreviewPage = state.previewPage;
+  const previousBookId = state.currentBook?.id || "";
   const previousScrollTop = preserveViewport ? els.readerContent.scrollTop : 0;
   const previousAudioTime = preservePlaybackState ? Number(els.bookAudio.currentTime || 0) : 0;
   const shouldResumePlayback = preservePlaybackState && !els.bookAudio.paused && !els.bookAudio.ended;
   const sameAudioUrl = Boolean(page.audioUrl && state.currentAudioUrl && state.currentAudioUrl === page.audioUrl);
+  const preservedPreviewPage =
+    options.skipPreviewReload &&
+    previousBookId === book.id &&
+    previousPreviewPage &&
+    previousPreviewPage.index === page.index + 1
+      ? previousPreviewPage
+      : null;
 
   state.currentBook = book;
   state.currentPage = page;
-  state.previewPage = null;
+  state.previewPage = preservedPreviewPage;
   state.currentPageIndex = page.index;
   state.detectedBookLanguage = book.detectedLanguage || "auto";
   state.readerLanguage = page.translatedText ? book.audiobookLanguage || "pt-pt" : book.detectedLanguage || "auto";
@@ -679,7 +718,12 @@ function applyBookPage(book, page, options = {}) {
   syncBookSummaryPage(page);
   renderReaderShell();
   renderCurrentReaderContent(page.displayText || page.sourceText || "");
-  renderPreviewPlaceholder();
+  if (preservedPreviewPage) {
+    renderPreviewPageContent(preservedPreviewPage.displayText || preservedPreviewPage.sourceText || "");
+    els.pageFooterNumberNext.textContent = `Page ${preservedPreviewPage.index + 1}`;
+  } else {
+    renderPreviewPlaceholder();
+  }
   if (!options.skipAnimate) {
     animatePageTurn(options.turnDirection || "");
   }
@@ -723,7 +767,7 @@ function applyBookPage(book, page, options = {}) {
   updateReaderStatusPill();
   applyLookupHighlight();
 
-  if ((page.translationStatus === "running" || page.audioStatus === "running") && !page.audioUrl) {
+  if (visiblePageNeedsPolling(page, { preview: false }) || visiblePageNeedsPolling(state.previewPage, { preview: true })) {
     startPageStatusPolling(book.id, page.index);
   } else {
     stopPageStatusPolling();
@@ -734,8 +778,12 @@ function applyBookPage(book, page, options = {}) {
   }
 
   switchView("reader");
-  void loadPreviewPageForCurrentSpread();
-  void maybeAutoPrepareCurrentPage();
+  if (!options.skipPreviewReload) {
+    void loadPreviewPageForCurrentSpread();
+  }
+  if (!options.skipAutoPrepare) {
+    void maybeAutoPrepareCurrentPage();
+  }
 }
 
 function renderCurrentReaderContent(text) {
@@ -851,6 +899,9 @@ async function loadPreviewPageForCurrentSpread() {
     state.previewPage = payload.page;
     renderPreviewPageContent(payload.page.displayText || payload.page.sourceText || "");
     els.pageFooterNumberNext.textContent = `Page ${payload.page.index + 1}`;
+    if (visiblePageNeedsPolling(state.currentPage, { preview: false }) || visiblePageNeedsPolling(payload.page, { preview: true })) {
+      startPageStatusPolling(book.id, state.currentPageIndex);
+    }
   } catch {
     if (requestToken !== state.previewRequestToken) {
       return;
@@ -1221,7 +1272,19 @@ function inferGenerationProgressFromPage(page) {
   return 0;
 }
 
+function isCurrentPagePlaying(page) {
+  return Boolean(page?.audioUrl && state.currentAudioUrl === page.audioUrl && !els.bookAudio.paused && !els.bookAudio.ended);
+}
+
 function buildGenerationLabelFromPage(page) {
+  if (page.audioUrl && isCurrentPagePlaying(page)) {
+    return `Playing page ${page.index + 1} now.`;
+  }
+  if (state.autoplayPending) {
+    return page.audioUrl
+      ? `Audio ready for page ${page.index + 1}. Starting playback now.`
+      : `Autoplay is armed for page ${page.index + 1}. Voxenor will start as soon as the audio is ready.`;
+  }
   if (page.audioUrl) {
     return "Audio ready. Press Play whenever you want.";
   }
@@ -1240,6 +1303,15 @@ function buildGenerationLabelFromPage(page) {
 function buildReaderStageLabel(page, needsTranslation) {
   const sourceLabel = getLanguageLabel(state.currentBook?.detectedLanguage || "auto");
   const targetLabel = getLanguageLabel(state.currentBook?.audiobookLanguage || "pt-pt");
+  if (state.autoplayPending && page.audioUrl) {
+    return `Page ${page.index + 1} is ready. Starting playback now.`;
+  }
+  if (state.autoplayPending) {
+    return `Page ${page.index + 1} is on screen. Voxenor will start playback as soon as the audiobook is ready.`;
+  }
+  if (isCurrentPagePlaying(page)) {
+    return `Playing page ${page.index + 1} in ${targetLabel}.`;
+  }
   if (page.audioUrl) {
     return `Page ${page.index + 1} is ready. Press Play to hear it.`;
   }
@@ -1256,6 +1328,31 @@ function buildReaderStageLabel(page, needsTranslation) {
     return `Showing the original ${sourceLabel} text for page ${page.index + 1} while Voxenor starts the translation pipeline.`;
   }
   return `Page ${page.index + 1} is on screen. Voxenor is preparing audio in the background.`;
+}
+
+function visiblePageNeedsPolling(page, { preview = false } = {}) {
+  if (!page || !state.currentBook) {
+    return false;
+  }
+
+  if (page.translationStatus === "running" || page.audioStatus === "running") {
+    return true;
+  }
+
+  const needsTranslation =
+    normalizeLanguageCode(state.currentBook.detectedLanguage || "auto") !== "auto" &&
+    normalizeLanguageCode(state.currentBook.detectedLanguage || "auto") !==
+      normalizeLanguageCode(state.currentBook.audiobookLanguage || "pt-pt");
+
+  if (preview && needsTranslation && !page.translatedText?.trim()) {
+    return true;
+  }
+
+  if (preview && !page.audioUrl) {
+    return true;
+  }
+
+  return false;
 }
 
 function updateReaderStatusPill() {
@@ -1301,19 +1398,43 @@ function startPageStatusPolling(bookId, pageIndex) {
 
     state.pageStatusPollerBusy = true;
     try {
-      const payload = await fetchJson(`/api/books/${bookId}/pages/${pageIndex}`);
-      const page = payload.page;
-      syncBookSummaryPage(page);
+      if (state.currentBook?.id !== bookId) {
+        stopPageStatusPolling();
+        return;
+      }
+
+      const currentPagePayload = await fetchJson(`/api/books/${bookId}/pages/${pageIndex}`);
+      const currentPage = currentPagePayload.page;
+      syncBookSummaryPage(currentPage);
 
       if (state.currentBook?.id === bookId && state.currentPageIndex === pageIndex) {
-        applyBookPage(state.currentBook, page, {
+        applyBookPage(state.currentBook, currentPage, {
           preserveViewport: true,
           preservePlaybackState: true,
           skipAnimate: true,
+          skipPreviewReload: true,
+          skipAutoPrepare: true,
         });
       }
 
-      if (page.audioUrl) {
+      const visiblePreviewIndex =
+        state.currentBook?.id === bookId && state.previewPage?.index === state.currentPageIndex + 1
+          ? state.previewPage.index
+          : -1;
+
+      if (visiblePreviewIndex >= 0) {
+        const previewPayload = await fetchJson(`/api/books/${bookId}/pages/${visiblePreviewIndex}`);
+        if (state.currentBook?.id === bookId && state.currentPageIndex + 1 === visiblePreviewIndex) {
+          state.previewPage = previewPayload.page;
+          renderPreviewPageContent(previewPayload.page.displayText || previewPayload.page.sourceText || "");
+          els.pageFooterNumberNext.textContent = `Page ${previewPayload.page.index + 1}`;
+        }
+      }
+
+      const stillNeedsPolling =
+        visiblePageNeedsPolling(state.currentPage, { preview: false }) ||
+        visiblePageNeedsPolling(state.previewPage, { preview: true });
+      if (!stillNeedsPolling) {
         stopPageStatusPolling();
       }
     } catch {
@@ -1356,7 +1477,7 @@ async function handlePlayToggle() {
     updateGenerationUi({
       label: `Page ${state.currentPageIndex + 1} is not ready yet.`,
       progress: 0,
-      logs: ["Press Generate audiobook first so Voxenor can translate and render this page."],
+      logs: ["Voxenor is still translating or rendering this page. Keep reading and playback will unlock as soon as the audio is ready."],
     });
     return;
   }
@@ -1385,9 +1506,11 @@ async function handleAudioEnded() {
     return;
   }
 
-  await openBookPage(nextPageIndex, { turnDirection: "forward" });
+  await openBookPage(nextPageIndex, { turnDirection: "forward", autoplay: true, preferPreview: true });
   if (els.bookAudio.src) {
-    await els.bookAudio.play().catch(() => {});
+    if (els.bookAudio.paused) {
+      await els.bookAudio.play().catch(() => {});
+    }
     return;
   }
   await handlePrepareCurrentPage({ autoplay: true });

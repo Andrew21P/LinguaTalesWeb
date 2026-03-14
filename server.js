@@ -2856,6 +2856,7 @@ function analyzeBookStructure(pages) {
   const maxScanPages = Math.min(pages.length, 160);
   let suggestedStartPageIndex = 0;
   let foundStart = false;
+  let explicitChapterStartPageIndex = -1;
 
   for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
     const page = pages[pageIndex];
@@ -2869,6 +2870,9 @@ function analyzeBookStructure(pages) {
         pageIndex,
         title: analysis.title || `Page ${pageIndex + 1}`,
       });
+      if (explicitChapterStartPageIndex < 0 && analysis.isExplicitChapter) {
+        explicitChapterStartPageIndex = pageIndex;
+      }
       if (!foundStart) {
         suggestedStartPageIndex = pageIndex;
         foundStart = true;
@@ -2889,7 +2893,7 @@ function analyzeBookStructure(pages) {
   }
 
   return {
-    suggestedStartPageIndex,
+    suggestedStartPageIndex: explicitChapterStartPageIndex >= 0 ? explicitChapterStartPageIndex : suggestedStartPageIndex,
     chapterMarkers,
   };
 }
@@ -2942,10 +2946,12 @@ function analyzePageStructure(text) {
 
   const isFrontMatter = frontMatterScore >= 3 && chapterScore < 4;
   const isChapterStart = chapterScore >= 3 && !isFrontMatter;
+  const isExplicitChapter = /^(?:chapter|cap[ií]tulo)\b/iu.test(chapterHeadingLine);
 
   return {
     isFrontMatter,
     isChapterStart,
+    isExplicitChapter,
     title: titleCandidate || compactDetectedPageTitle(chapterHeadingLine) || "",
   };
 }
@@ -3087,19 +3093,30 @@ async function sanitizeLibraryBookState(book) {
   const generationLogPattern =
     /Generating segment \d+ of \d+\.|Loading Chatterbox models\.|Applying your uploaded voice sample\.|Combining narration chunks\.|Audiobook finished\./u;
   const cachedAudioArtifacts = await getCachedLibraryAudioArtifacts(book.id);
+  const previousSuggestedStartPageIndex = Number.isInteger(book.suggestedStartPageIndex) ? book.suggestedStartPageIndex : 0;
+  const firstExplicitStoredChapterMarker =
+    Array.isArray(book.chapterMarkers) && book.chapterMarkers.length
+      ? book.chapterMarkers.find((marker) => /^(?:chapter|cap[ií]tulo)\b/iu.test(marker?.title || ""))
+      : null;
+  const shouldRefreshStructure =
+    !Number.isInteger(book.suggestedStartPageIndex) ||
+    !Array.isArray(book.chapterMarkers) ||
+    book.chapterMarkers.length === 0 ||
+    !book.chapterMarkers.some((marker) => /^(?:chapter|cap[ií]tulo)\b/iu.test(marker?.title || "")) ||
+    (Number.isInteger(firstExplicitStoredChapterMarker?.pageIndex) &&
+      firstExplicitStoredChapterMarker.pageIndex > previousSuggestedStartPageIndex + 2);
 
-  if (
-    (
-      !Number.isInteger(book.suggestedStartPageIndex) ||
-      !Array.isArray(book.chapterMarkers) ||
-      book.chapterMarkers.length === 0
-    ) &&
-    Array.isArray(book.pages)
-  ) {
+  if (shouldRefreshStructure && Array.isArray(book.pages)) {
     const structure = analyzeBookStructure(book.pages);
     book.suggestedStartPageIndex = structure.suggestedStartPageIndex;
     book.chapterMarkers = structure.chapterMarkers;
-    if ((Number(book.progress?.pageIndex || 0) === 0) && structure.suggestedStartPageIndex > 0) {
+    const currentProgressPageIndex = Number(book.progress?.pageIndex || 0);
+    const progressPageLooksLikeFrontMatter = analyzePageStructure(book.pages[clampPageIndex(book, currentProgressPageIndex)]?.originalText || "").isFrontMatter;
+    const progressStillNearOldStart = currentProgressPageIndex <= previousSuggestedStartPageIndex + 1;
+    if (
+      (currentProgressPageIndex === 0 || progressStillNearOldStart || progressPageLooksLikeFrontMatter) &&
+      structure.suggestedStartPageIndex > currentProgressPageIndex
+    ) {
       book.progress = {
         pageIndex: structure.suggestedStartPageIndex,
         audioTime: 0,
@@ -3251,7 +3268,7 @@ async function sanitizeLibraryBookState(book) {
 
     if (!pageTaskActive && !page.audioUrl && (page.logs || []).some((entry) => generationLogPattern.test(entry))) {
       const cleanedLogs = (page.logs || []).filter((entry) => !generationLogPattern.test(entry)).slice(-4);
-      page.logs = [...cleanedLogs, "Previous generation stopped before finishing. Click Generate audiobook to retry."];
+      page.logs = [...cleanedLogs, "Previous generation stopped before finishing. Open this page again and Voxenor will retry it cleanly."];
       changed = true;
     }
   }
