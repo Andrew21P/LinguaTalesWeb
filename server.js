@@ -102,9 +102,9 @@ const audiobookLanguageCatalog = [{ code: "pt-pt", locale: "pt-PT", label: "Port
 const builtInVoiceSamples = [
   {
     id: "storybook",
-    name: "Lusophone Studio",
+    name: getBuiltInPiperVoiceName(piperVoiceId),
     language: "pt-pt",
-    vibe: "Fast Portuguese (Portugal) studio narrator",
+    vibe: `Piper ${getBuiltInPiperVoiceQuality(piperVoiceId)} voice for Portuguese (Portugal)`,
     builtIn: true,
   },
 ];
@@ -1827,6 +1827,36 @@ function normalizePiperLanguageCode(languageCode) {
     return normalized;
   }
   return normalizeLanguageCode(normalized);
+}
+
+function getBuiltInPiperVoiceName(voiceKey) {
+  const metadata = parsePiperVoiceKey(voiceKey);
+  return metadata.name;
+}
+
+function getBuiltInPiperVoiceQuality(voiceKey) {
+  const metadata = parsePiperVoiceKey(voiceKey);
+  return metadata.quality;
+}
+
+function parsePiperVoiceKey(voiceKey) {
+  const normalized = String(voiceKey || "").trim();
+  if (!normalized) {
+    return {
+      name: "Piper Voice",
+      quality: "medium",
+    };
+  }
+
+  const pieces = normalized.split("-");
+  const quality = pieces.length > 1 ? pieces[pieces.length - 1] : "medium";
+  const nameParts = pieces.length > 2 ? pieces.slice(1, -1) : pieces.slice(1);
+  const rawName = nameParts.join("_") || normalized;
+
+  return {
+    name: formatPiperVoiceName(rawName),
+    quality,
+  };
 }
 
 function formatPiperVoiceName(name) {

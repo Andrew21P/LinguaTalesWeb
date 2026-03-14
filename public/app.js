@@ -368,53 +368,49 @@ async function loadPiperVoiceCatalog() {
 }
 
 function renderPiperCatalog() {
-  if (!state.piperVoices.length) {
+  const selectedAudiobookLanguage = normalizeLanguageCode(els.audiobookLanguage?.value || state.preferences?.audiobookLanguage || "pt-pt");
+  const filteredVoices = state.piperVoices.filter((voice) => normalizeLanguageCode(voice.languageCode) === selectedAudiobookLanguage);
+
+  if (!filteredVoices.length) {
     els.piperCatalog.classList.add("empty-state");
-    els.piperCatalog.textContent = "Loading the official Piper voice catalog...";
+    els.piperCatalog.textContent = "No Piper voices are available for the selected audiobook language yet.";
+    els.piperCatalogStatus.textContent = "0 voices";
     return;
   }
 
-  const groups = new Map();
-  state.piperVoices.forEach((voice) => {
-    const groupKey = `${voice.languageLabel}${voice.countryLabel ? ` · ${voice.countryLabel}` : ""}`;
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, []);
-    }
-    groups.get(groupKey).push(voice);
-  });
-
-  els.piperCatalogStatus.textContent = `${state.piperVoices.length} voices`;
+  els.piperCatalogStatus.textContent = `${filteredVoices.length} voice${filteredVoices.length === 1 ? "" : "s"}`;
   els.piperCatalog.classList.remove("empty-state");
   els.piperCatalog.innerHTML = "";
 
-  [...groups.entries()].forEach(([label, voices]) => {
-    const section = document.createElement("section");
-    section.className = "piper-language-group";
-    section.innerHTML = `
-      <div class="piper-language-header">
-        <strong>${escapeHtml(label)}</strong>
-        <span>${voices.length} voice${voices.length === 1 ? "" : "s"}</span>
-      </div>
-    `;
+  const label = getLanguageLabel(selectedAudiobookLanguage);
+  const section = document.createElement("section");
+  section.className = "piper-language-group";
+  section.innerHTML = `
+    <div class="piper-language-header">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${filteredVoices.length} voice${filteredVoices.length === 1 ? "" : "s"}</span>
+    </div>
+  `;
 
-    const chipList = document.createElement("div");
-    chipList.className = "piper-chip-list";
-    voices.forEach((voice) => {
-      const chip = document.createElement("span");
-      chip.className = "piper-chip";
-      chip.innerHTML = `
-        <strong>${escapeHtml(voice.name)}</strong>
-        <small>${escapeHtml(voice.quality)}</small>
-      `;
-      chipList.append(chip);
-    });
-    section.append(chipList);
-    els.piperCatalog.append(section);
+  const chipList = document.createElement("div");
+  chipList.className = "piper-chip-list";
+  filteredVoices.forEach((voice) => {
+    const chip = document.createElement("span");
+    chip.className = "piper-chip";
+    chip.innerHTML = `
+      <strong>${escapeHtml(voice.name)}</strong>
+      <small>${escapeHtml(voice.quality)}${voice.active ? " · installed" : ""}</small>
+    `;
+    chipList.append(chip);
   });
+
+  section.append(chipList);
+  els.piperCatalog.append(section);
 }
 
 async function handlePreferenceFieldChange() {
   updateLanguagePills();
+  renderPiperCatalog();
   await persistPreferences();
 }
 
