@@ -97,7 +97,8 @@ Optional variables:
 - `TTS_BACKEND=chatterbox` to force the slower clone-oriented path everywhere
 - `PIPER_*` values if you want to pin a different Piper PT-PT voice model or retune its pacing/noise defaults
 - `DEFAULT_EXAGGERATION=0.52` if you want to tune the fixed narration expressiveness default
-- `DEFAULT_NARRATION_SPEED=0.92` if you want to tune the default rendered narration tempo
+- `DEFAULT_NARRATION_SPEED=0.88` if you want to tune the default rendered narration tempo
+- `PIPER_LENGTH_SCALE=1.22` if you want the built-in PT-PT Piper voice to speak a touch slower and fuller
 - `DEFAULT_CFG_WEIGHT=0.28` if you want a slightly calmer multilingual Chatterbox guidance setting
 - `READY_PAGE_WINDOW=3` if you want Voxenor to keep more or fewer upcoming pages warming in the background
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length
