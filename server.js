@@ -3619,6 +3619,7 @@ async function clearBookAudioCache(book) {
 }
 
 async function deleteLibraryBook(bookId) {
+  bookPreparationTargets.delete(bookId);
   await fsp.rm(getLibraryBookDir(bookId), { recursive: true, force: true });
 }
 
