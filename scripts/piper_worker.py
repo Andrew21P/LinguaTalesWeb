@@ -44,7 +44,7 @@ def process_job(payload: dict) -> None:
     output_path = Path(payload["output"])
     metadata_output = Path(payload["metadata_output"]) if payload.get("metadata_output") else None
     language = str(payload.get("language") or "pt")
-    speed = float(payload.get("speed") or 0.88)
+    speed = float(payload.get("speed") or 0.8)
     voice_sample = str(payload.get("voice_sample") or "").strip()
     voice_id = str(payload.get("voice_id") or gp.DEFAULT_VOICE_ID)
     model_path = str(payload.get("model_path") or "")
