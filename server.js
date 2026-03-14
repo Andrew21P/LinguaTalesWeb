@@ -292,6 +292,7 @@ app.get("/api/meta", requireSession, (_req, res) => {
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
     profile: getPublicProfile(),
     preferences: effectivePreferences,
+    savedWords: effectivePreferences.savedWords || [],
     localAccessUrls: getLocalAccessUrls(port),
     defaults: {
       exaggeration: defaultExaggeration,
@@ -422,6 +423,80 @@ app.post("/api/preferences", requireSession, async (req, res) => {
         ? 400
         : 500;
     return res.status(statusCode).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/saved-words", requireSession, (_req, res) => {
+  return res.json({
+    ok: true,
+    savedWords: normalizeSavedWords(userPreferences.savedWords),
+  });
+});
+
+app.post("/api/saved-words", requireSession, async (req, res) => {
+  try {
+    const entry = normalizeSavedWordEntry(req.body);
+    if (!entry) {
+      return res.status(400).json({
+        ok: false,
+        error: "A source phrase and translation are required.",
+      });
+    }
+
+    const existingIndex = normalizeSavedWords(userPreferences.savedWords).findIndex(
+      (savedWord) =>
+        savedWord.source.toLowerCase() === entry.source.toLowerCase() &&
+        savedWord.translatedText.toLowerCase() === entry.translatedText.toLowerCase() &&
+        savedWord.bookId === entry.bookId &&
+        savedWord.pageIndex === entry.pageIndex
+    );
+
+    const savedWords = normalizeSavedWords(userPreferences.savedWords);
+    if (existingIndex >= 0) {
+      savedWords.splice(existingIndex, 1);
+    }
+    savedWords.unshift(entry);
+
+    userPreferences = {
+      ...userPreferences,
+      savedWords: savedWords.slice(0, 500),
+      updatedAt: new Date().toISOString(),
+    };
+    await persistUserPreferences();
+
+    return res.json({
+      ok: true,
+      savedWord: entry,
+      savedWords: userPreferences.savedWords,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
+
+app.delete("/api/saved-words/:savedWordId", requireSession, async (req, res) => {
+  try {
+    const savedWordId = String(req.params.savedWordId || "").trim();
+    const savedWords = normalizeSavedWords(userPreferences.savedWords).filter((entry) => entry.id !== savedWordId);
+    userPreferences = {
+      ...userPreferences,
+      savedWords,
+      updatedAt: new Date().toISOString(),
+    };
+    await persistUserPreferences();
+
+    return res.json({
+      ok: true,
+      savedWords,
+    });
+  } catch (error) {
+    return res.status(500).json({
       ok: false,
       error: error.message,
     });
@@ -2379,6 +2454,7 @@ function loadUserPreferences() {
     listenerLanguage: normalizeLanguageCode(process.env.APP_ACCOUNT_INTERFACE_LANGUAGE || "en"),
     audiobookLanguage: accountProfile.learningLanguage || "pt-pt",
     selectedVoiceId: "storybook",
+    savedWords: [],
     updatedAt: new Date().toISOString(),
   };
 
@@ -2394,6 +2470,7 @@ function loadUserPreferences() {
       listenerLanguage: normalizeLanguageCode(parsed.listenerLanguage || fallback.listenerLanguage),
       audiobookLanguage: normalizeLanguageCode(parsed.audiobookLanguage || fallback.audiobookLanguage),
       selectedVoiceId: String(parsed.selectedVoiceId || fallback.selectedVoiceId),
+      savedWords: normalizeSavedWords(parsed.savedWords),
     };
   } catch {
     return fallback;
@@ -2403,6 +2480,7 @@ function loadUserPreferences() {
 function getEffectiveUserPreferences(preferences = userPreferences) {
   const effectivePreferences = {
     ...preferences,
+    savedWords: normalizeSavedWords(preferences.savedWords),
   };
 
   if (
@@ -2413,6 +2491,38 @@ function getEffectiveUserPreferences(preferences = userPreferences) {
   }
 
   return effectivePreferences;
+}
+
+function normalizeSavedWords(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map(normalizeSavedWordEntry)
+    .filter(Boolean)
+    .sort((left, right) => Date.parse(right.createdAt || 0) - Date.parse(left.createdAt || 0));
+}
+
+function normalizeSavedWordEntry(entry) {
+  const source = String(entry?.source || "").trim();
+  const translatedText = String(entry?.translatedText || "").trim();
+  if (!source || !translatedText) {
+    return null;
+  }
+
+  return {
+    id: String(entry?.id || crypto.randomUUID()),
+    source,
+    translatedText,
+    sourceLanguage: normalizeLanguageCode(entry?.sourceLanguage || "auto"),
+    targetLanguage: normalizeLanguageCode(entry?.targetLanguage || "en"),
+    bookId: String(entry?.bookId || "").trim(),
+    bookTitle: String(entry?.bookTitle || "").trim(),
+    pageIndex: Math.max(0, Number(entry?.pageIndex || 0)),
+    context: String(entry?.context || "").trim().slice(0, 360),
+    createdAt: entry?.createdAt || new Date().toISOString(),
+  };
 }
 
 async function persistUserPreferences() {

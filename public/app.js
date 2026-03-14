@@ -2,51 +2,38 @@ const state = {
   appName: "Voxenor",
   authenticated: false,
   profile: null,
-  modelInfo: null,
   preferences: null,
+  modelInfo: null,
   localAccessUrls: [],
   libraryBooks: [],
   piperVoices: [],
-  currentBook: null,
-  currentPageIndex: 0,
-  title: "",
-  fullText: "",
-  sourceText: "",
-  chapters: [],
-  currentChapterIndex: 0,
-  currentChapterTokens: [],
-  chapterWordCounts: [],
-  chapterWordOffsets: [],
-  totalWordCount: 0,
-  bookLanguage: "auto",
-  detectedBookLanguage: "pt",
-  listenerLanguage: "en",
-  audiobookLanguage: "pt-pt",
-  readerLanguage: "pt-pt",
+  savedWords: [],
   selectedVoice: null,
-  voiceSamples: [],
-  customVoice: null,
-  mediaRecorder: null,
-  recordedChunks: [],
-  generationJobId: null,
-  generationPoller: null,
-  currentAudioUrl: "",
-  lastHighlightedGlobalIndex: -1,
+  currentBook: null,
+  currentPage: null,
+  currentPageIndex: 0,
+  detectedBookLanguage: "auto",
+  readerLanguage: "auto",
   alignmentSegments: [],
   alignmentWordTimings: [],
+  currentTokens: [],
+  totalWordCount: 0,
+  currentAudioUrl: "",
+  lastHighlightedGlobalIndex: -1,
+  activeLookupSourceNormalized: "",
+  lookup: null,
+  pagePreparing: false,
+  pageStatusPoller: 0,
+  pageStatusPollerBusy: false,
   highlightAnimationFrame: 0,
   followPlayback: true,
   readerScrollLockedUntil: 0,
   selectionTranslateTimer: 0,
   lastSelectionText: "",
-  defaultExaggeration: 0.52,
+  lastWarmWindowKey: "",
   progressSaveTimer: 0,
   bookImporting: false,
-  pagePreparing: false,
-  pageStatusPoller: 0,
-  pageStatusPollerBusy: false,
   readerTurnTimer: 0,
-  lastWarmWindowKey: "",
 };
 
 const els = {
@@ -56,6 +43,10 @@ const els = {
   authSubmit: document.querySelector("#auth-submit"),
   authStatus: document.querySelector("#auth-status"),
   logoutButton: document.querySelector("#logout-button"),
+  homeButton: document.querySelector("#home-button"),
+  libraryView: document.querySelector("#library-view"),
+  readerView: document.querySelector("#reader-view"),
+  backToLibrary: document.querySelector("#back-to-library"),
   bookForm: document.querySelector("#book-form"),
   bookTitle: document.querySelector("#book-title"),
   bookText: document.querySelector("#book-text"),
@@ -65,122 +56,102 @@ const els = {
   bookLanguage: document.querySelector("#book-language"),
   listenerLanguage: document.querySelector("#listener-language"),
   audiobookLanguage: document.querySelector("#audiobook-language"),
-  chapterList: document.querySelector("#chapter-list"),
-  chapterCount: document.querySelector("#chapter-count"),
-  pageWindowLabel: document.querySelector("#page-window-label"),
-  pagePrev: document.querySelector("#page-prev"),
-  pageNext: document.querySelector("#page-next"),
   libraryCount: document.querySelector("#library-count"),
   bookLibrary: document.querySelector("#book-library"),
-  profileName: document.querySelector("#profile-name"),
-  profileDetails: document.querySelector("#profile-details"),
-  networkList: document.querySelector("#network-list"),
-  readerTitle: document.querySelector("#reader-title"),
-  readerPage: document.querySelector("#reader-page"),
-  readerContent: document.querySelector("#reader-content"),
-  seekBackward: document.querySelector("#seek-backward"),
-  seekForward: document.querySelector("#seek-forward"),
-  restartToggle: document.querySelector("#restart-toggle"),
-  playToggle: document.querySelector("#play-toggle"),
-  pauseToggle: document.querySelector("#pause-toggle"),
-  stopToggle: document.querySelector("#stop-toggle"),
-  bookAudio: document.querySelector("#book-audio"),
-  activeLanguagePill: document.querySelector("#active-language-pill"),
-  translationLanguagePill: document.querySelector("#translation-language-pill"),
-  listenerLanguagePill: document.querySelector("#listener-language-pill"),
-  voicePill: document.querySelector("#voice-pill"),
   voiceShelf: document.querySelector("#voice-shelf"),
+  voicePill: document.querySelector("#voice-pill"),
   piperCatalog: document.querySelector("#piper-catalog"),
   piperCatalogStatus: document.querySelector("#piper-catalog-status"),
   supportedLanguageList: document.querySelector("#supported-language-list"),
-  chapterButtonTemplate: document.querySelector("#chapter-button-template"),
-  wordPopover: document.querySelector("#word-popover"),
-  selectionTranslation: document.querySelector("#selection-translation"),
-  recordToggle: document.querySelector("#record-toggle"),
-  uploadVoiceButton: document.querySelector("#upload-voice-button"),
-  voiceFile: document.querySelector("#voice-file"),
-  voiceLabel: document.querySelector("#voice-label"),
-  voicePreview: document.querySelector("#voice-preview"),
-  voiceScriptText: document.querySelector("#voice-script-text"),
-  recordingStatus: document.querySelector("#recording-status"),
-  recordingCard: document.querySelector("#recording-card"),
+  profileName: document.querySelector("#profile-name"),
+  profileDetails: document.querySelector("#profile-details"),
+  networkList: document.querySelector("#network-list"),
+  readerBookCover: document.querySelector("#reader-book-cover"),
+  readerBookTitle: document.querySelector("#reader-book-title"),
+  readerBookMeta: document.querySelector("#reader-book-meta"),
+  readerProgressLabel: document.querySelector("#reader-progress-label"),
+  readerPageLabel: document.querySelector("#reader-page-label"),
+  readerProgressFill: document.querySelector("#reader-progress-fill"),
+  readerStatusPill: document.querySelector("#reader-status-pill"),
+  activeLanguagePill: document.querySelector("#active-language-pill"),
+  translationLanguagePill: document.querySelector("#translation-language-pill"),
+  listenerLanguagePill: document.querySelector("#listener-language-pill"),
+  readerDeleteBook: document.querySelector("#reader-delete-book"),
+  goToPageForm: document.querySelector("#go-to-page-form"),
+  goToPageInput: document.querySelector("#go-to-page-input"),
   generateButton: document.querySelector("#generate-button"),
   generationStatus: document.querySelector("#generation-status"),
   generationLabel: document.querySelector("#generation-label"),
   generationPercent: document.querySelector("#generation-percent"),
   generationProgress: document.querySelector("#generation-progress"),
   generationLog: document.querySelector("#generation-log"),
+  playToggle: document.querySelector("#play-toggle"),
+  pauseToggle: document.querySelector("#pause-toggle"),
+  restartToggle: document.querySelector("#restart-toggle"),
+  pagePrev: document.querySelector("#page-prev"),
+  pageNext: document.querySelector("#page-next"),
+  readerPage: document.querySelector("#reader-page"),
+  readerContent: document.querySelector("#reader-content"),
+  pageFooterNumber: document.querySelector("#page-footer-number"),
+  bookAudio: document.querySelector("#book-audio"),
+  selectionTranslation: document.querySelector("#selection-translation"),
+  saveWordButton: document.querySelector("#save-word-button"),
+  savedWordsCount: document.querySelector("#saved-words-count"),
+  savedWordsList: document.querySelector("#saved-words-list"),
 };
 
 const languageLabels = new Map();
 
 bootstrap().catch((error) => {
   console.error(error);
-  setSelectionTranslation(`Setup error: ${error.message}`, true);
+  setLookupError(`Setup error: ${error.message}`);
 });
 
 async function bootstrap() {
   attachEvents();
-  const session = await fetchJson("/api/session");
+  const session = await fetchJson("/api/session").catch(() => ({ authenticated: false }));
   if (!session.authenticated) {
     showAuthShell(true);
     els.authEmail.value = "eleonorashatkovska@gmail.com";
+    switchView("library");
     return;
   }
 
-  await initializeAuthenticatedApp(session.profile);
+  await initializeAuthenticatedApp(session.profile || null);
 }
 
 function attachEvents() {
-  els.authSubmit.addEventListener("click", handleLogin);
+  els.authSubmit.addEventListener("click", () => void handleLogin());
   els.authPassword.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       void handleLogin();
     }
   });
-  els.logoutButton.addEventListener("click", handleLogout);
-  els.bookForm.addEventListener("submit", handleBookOpen);
+  els.logoutButton.addEventListener("click", () => void handleLogout());
+  els.homeButton.addEventListener("click", handleOpenLibraryView);
+  els.backToLibrary.addEventListener("click", handleOpenLibraryView);
+  els.bookForm.addEventListener("submit", handleBookImport);
+  els.bookLanguage.addEventListener("change", () => void handlePreferenceFieldChange());
+  els.listenerLanguage.addEventListener("change", () => void handlePreferenceFieldChange());
+  els.audiobookLanguage.addEventListener("change", () => void handlePreferenceFieldChange());
+  els.generateButton.addEventListener("click", () => void handlePrepareCurrentPage());
+  els.readerDeleteBook.addEventListener("click", () => void handleDeleteCurrentBook());
+  els.goToPageForm.addEventListener("submit", handleGoToPageSubmit);
   els.pagePrev.addEventListener("click", () => void openAdjacentPage(-1));
   els.pageNext.addEventListener("click", () => void openAdjacentPage(1));
-  if (els.seekBackward) {
-    els.seekBackward.addEventListener("click", () => seekCurrentAudio(-10));
-  }
-  if (els.seekForward) {
-    els.seekForward.addEventListener("click", () => seekCurrentAudio(10));
-  }
-  if (els.restartToggle) {
-    els.restartToggle.addEventListener("click", handleRestartCurrentPage);
-  }
-  els.playToggle.addEventListener("click", handlePlayToggle);
+  els.playToggle.addEventListener("click", () => void handlePlayToggle());
   els.pauseToggle.addEventListener("click", () => els.bookAudio.pause());
-  if (els.stopToggle) {
-    els.stopToggle.addEventListener("click", handleStopCurrentPage);
-  }
-  els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
-  els.bookAudio.addEventListener("timeupdate", scheduleProgressSave);
+  els.restartToggle.addEventListener("click", () => void handleRestartCurrentPage());
+  els.saveWordButton.addEventListener("click", () => void saveCurrentLookup());
+
   els.bookAudio.addEventListener("play", startPlaybackTracking);
   els.bookAudio.addEventListener("pause", stopPlaybackTracking);
-  els.bookAudio.addEventListener("ended", handleAudioEnded);
+  els.bookAudio.addEventListener("ended", () => void handleAudioEnded());
+  els.bookAudio.addEventListener("timeupdate", syncPlaybackHighlight);
+  els.bookAudio.addEventListener("timeupdate", scheduleProgressSave);
   els.bookAudio.addEventListener("seeking", syncPlaybackHighlight);
-  els.recordToggle.addEventListener("click", toggleRecording);
-  els.uploadVoiceButton.addEventListener("click", () => els.voiceFile.click());
-  els.voiceFile.addEventListener("change", handleVoiceUploadFromPicker);
-  els.generateButton.addEventListener("click", handlePrepareCurrentPage);
-  els.bookLanguage.addEventListener("change", handlePreferenceFieldChange);
-  els.listenerLanguage.addEventListener("change", handlePreferenceFieldChange);
-  els.audiobookLanguage.addEventListener("change", handlePreferenceFieldChange);
+
   els.readerContent.addEventListener("scroll", handleReaderManualScroll, { passive: true });
-
-  document.addEventListener("click", (event) => {
-    if (
-      event.target instanceof Element &&
-      !els.wordPopover.contains(event.target) &&
-      !event.target.classList.contains("token")
-    ) {
-      hideWordPopover();
-    }
-  });
-
   document.addEventListener("selectionchange", scheduleSelectionTranslate);
   document.addEventListener("mouseup", scheduleSelectionTranslate);
   document.addEventListener("keyup", scheduleSelectionTranslate);
@@ -189,46 +160,47 @@ function attachEvents() {
 async function initializeAuthenticatedApp(profileOverride = null) {
   state.authenticated = true;
   showAuthShell(false);
+
   const meta = await fetchJson("/api/meta");
   state.appName = meta.appName || "Voxenor";
   state.modelInfo = meta.modelInfo || null;
   state.profile = profileOverride || meta.profile || null;
   state.preferences = meta.preferences || null;
   state.localAccessUrls = meta.localAccessUrls || [];
-  state.voiceSamples = meta.voiceSamples || [];
-  state.selectedVoice =
-    state.voiceSamples.find((sample) => sample.id === meta.preferences?.selectedVoiceId) || state.voiceSamples[0] || null;
-  if (!meta.modelInfo?.supportsCustomVoiceCloning) {
-    state.selectedVoice = state.voiceSamples.find((sample) => sample.id === "storybook") || state.selectedVoice;
-  }
-  state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.52;
+  state.piperVoices = [];
+  state.savedWords = meta.savedWords || [];
+
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
-  renderVoiceShelf();
-  renderPiperCatalog();
   renderProfile(meta.profile, meta.localAccessUrls || []);
-  syncVoiceCaptureCapabilities();
-  if (!meta.modelInfo?.supportsCustomVoiceCloning && meta.preferences?.selectedVoiceId !== state.selectedVoice?.id) {
-    void persistPreferences();
-  }
-  els.generateButton.textContent = "Generate audiobook";
+
+  const voiceSamples = meta.voiceSamples || [];
+  state.selectedVoice =
+    voiceSamples.find((sample) => sample.id === meta.preferences?.selectedVoiceId) ||
+    voiceSamples.find((sample) => sample.id === "storybook") ||
+    voiceSamples[0] ||
+    null;
+  renderVoiceShelf(voiceSamples);
   void loadPiperVoiceCatalog();
 
   const booksPayload = await fetchJson("/api/books");
   state.libraryBooks = booksPayload.books || [];
   renderLibraryBooks();
-
-  const resumeBook = state.libraryBooks[0];
-  if (resumeBook) {
-    await loadLibraryBook(resumeBook.id, resumeBook.progress?.pageIndex || 0);
-  } else {
-    renderPageList();
-    renderCurrentChapter();
-  }
+  renderSavedWords();
+  renderLookupPanel();
+  renderReaderShell();
+  switchView("library");
 }
 
 function showAuthShell(visible) {
   els.authShell.classList.toggle("hidden", !visible);
+}
+
+function switchView(view) {
+  const readerVisible = view === "reader";
+  els.libraryView.classList.toggle("hidden", readerVisible);
+  els.readerView.classList.toggle("hidden", !readerVisible);
+  els.homeButton.classList.toggle("hidden", !readerVisible);
 }
 
 async function handleLogin() {
@@ -245,8 +217,6 @@ async function handleLogin() {
       }),
     });
 
-    state.authenticated = true;
-    state.profile = payload.profile || null;
     els.authPassword.value = "";
     await initializeAuthenticatedApp(payload.profile || null);
   } catch (error) {
@@ -255,134 +225,33 @@ async function handleLogin() {
 }
 
 async function handleLogout() {
-  await fetchJson("/api/session/logout", {
-    method: "POST",
-  }).catch(() => {});
-
+  await fetchJson("/api/session/logout", { method: "POST" }).catch(() => {});
   stopPageStatusPolling();
+  stopPlaybackTracking();
   state.authenticated = false;
   state.profile = null;
+  state.preferences = null;
   state.libraryBooks = [];
   state.currentBook = null;
-  state.currentPageIndex = 0;
-  state.chapters = [];
-  state.fullText = "";
+  state.currentPage = null;
+  state.savedWords = [];
+  state.lookup = null;
+  state.currentTokens = [];
+  state.activeLookupSourceNormalized = "";
   els.bookAudio.pause();
   els.bookAudio.removeAttribute("src");
   els.bookAudio.load();
-  setTransportAvailability(false);
-  renderLibraryBooks();
-  renderPageList();
-  renderCurrentChapter();
   showAuthShell(true);
+  switchView("library");
+  renderLibraryBooks();
+  renderSavedWords();
+  renderLookupPanel();
+  renderReaderShell();
 }
 
-function renderProfile(profile, localAccessUrls) {
-  if (!profile) {
-    els.profileName.textContent = "Your reader profile";
-    els.profileDetails.textContent = "Sign in to see saved preferences.";
-    els.networkList.innerHTML = "";
-    return;
-  }
-
-  const nativeLabels = (profile.nativeLanguages || []).map(getLanguageLabel).join(" + ");
-  const fluentLabels = (profile.fluentLanguages || []).map(getLanguageLabel).join(", ");
-  els.profileName.textContent = profile.name || profile.email || "Reader";
-  els.profileDetails.textContent = `Native: ${nativeLabels || "Unknown"}. Fluent: ${fluentLabels || "Unknown"}. Learning: ${getLanguageLabel(profile.learningLanguage || "pt-pt")}.`;
-  els.networkList.innerHTML = (localAccessUrls || [])
-    .map((url) => `<span class="network-pill">${escapeHtml(url)}</span>`)
-    .join("");
-}
-
-async function handlePreferenceFieldChange() {
-  updateLanguagePills();
-  await persistPreferences();
-}
-
-async function persistPreferences() {
-  try {
-    const payload = await fetchJson("/api/preferences", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sourceLanguage: els.bookLanguage.value,
-        listenerLanguage: els.listenerLanguage.value,
-        audiobookLanguage: els.audiobookLanguage.value,
-        selectedVoiceId: state.selectedVoice?.id || "storybook",
-      }),
-    });
-    state.preferences = payload.preferences;
-  } catch (error) {
-    console.warn("Preferences update failed:", error.message);
-  }
-}
-
-function setBookStatus(message, isError = false) {
-  els.bookStatus.textContent = message;
-  els.bookStatus.classList.toggle("is-error", isError);
-}
-
-function setBookImportState(isImporting) {
-  state.bookImporting = isImporting;
-  els.bookSubmit.disabled = isImporting;
-  els.bookSubmit.classList.toggle("is-loading", isImporting);
-  els.bookSubmit.textContent = isImporting ? "Importing..." : "Save to library";
-}
-
-async function handleBookOpen(event) {
-  event.preventDefault();
-  if (state.bookImporting) {
-    return;
-  }
-
-  const hasText = Boolean(els.bookText.value.trim());
-  const file = els.bookFile.files[0];
-  if (!hasText && !file) {
-    setBookStatus("Paste some text or choose a PDF, EPUB, TXT, or image first.", true);
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("title", els.bookTitle.value.trim());
-  formData.append("text", els.bookText.value);
-  formData.append("sourceLanguage", els.bookLanguage.value);
-  formData.append("listenerLanguage", els.listenerLanguage.value);
-  formData.append("audiobookLanguage", els.audiobookLanguage.value);
-  if (file) {
-    formData.append("bookFile", file);
-  }
-
-  setBookImportState(true);
-  setBookStatus(file ? "Uploading and extracting your book..." : "Saving your text into the library...");
-  setSelectionTranslation("Saving your book into Voxenor...", false);
-
-  try {
-    const payload = await fetchJson("/api/books/import", {
-      method: "POST",
-      body: formData,
-    });
-
-    state.currentBook = payload.book;
-    state.currentPageIndex = payload.page?.index || 0;
-    upsertLibraryBook(payload.book);
-    renderLibraryBooks();
-    applyBookPage(payload.book, payload.page);
-    renderPageList();
-    updateLanguagePills();
-    const importMessage = payload.existing
-      ? `"${payload.book.title}" was already in your library, so I opened the saved copy.`
-      : `Saved "${payload.book.title}" to your library.`;
-    setBookStatus(payload.existing ? importMessage : `${importMessage} Choose the narration voice and click Generate audiobook.`);
-    setSelectionTranslation(importMessage, false);
-    els.bookFile.value = "";
-  } catch (error) {
-    setBookStatus(error.message, true);
-    setSelectionTranslation(error.message, true);
-  } finally {
-    setBookImportState(false);
-  }
+function handleOpenLibraryView() {
+  els.bookAudio.pause();
+  switchView("library");
 }
 
 function renderLanguageOptions(meta) {
@@ -411,7 +280,7 @@ function populateSelect(selectNode, options) {
   options.forEach((option) => {
     const element = document.createElement("option");
     element.value = option.code;
-    element.textContent = option.locale ? `${option.label}` : option.label;
+    element.textContent = option.label;
     selectNode.append(element);
   });
 }
@@ -422,27 +291,43 @@ function renderSupportedLanguages(languages) {
       (language) => `
         <div class="support-item">
           <strong>${escapeHtml(language.label)}</strong>
-          <span>Voice cloning, aligned reading, OCR intake, and translation-aware narration workflow.</span>
+          <span>Fast narration, translation-aware reading, OCR intake, and aligned word highlighting.</span>
         </div>
       `
     )
     .join("");
 }
 
-function renderVoiceShelf() {
-  els.voiceShelf.innerHTML = "";
-  const visibleVoiceSamples = getVisibleVoiceSamples();
+function renderProfile(profile, localAccessUrls) {
+  if (!profile) {
+    els.profileName.textContent = "Your profile";
+    els.profileDetails.textContent = "Sign in to see your saved preferences.";
+    els.networkList.innerHTML = "";
+    return;
+  }
 
+  const nativeLabels = (profile.nativeLanguages || []).map(getLanguageLabel).join(" + ");
+  const fluentLabels = (profile.fluentLanguages || []).map(getLanguageLabel).join(", ");
+  els.profileName.textContent = profile.name || profile.email || "Reader";
+  els.profileDetails.textContent = `Native: ${nativeLabels || "Unknown"}. Fluent: ${fluentLabels || "Unknown"}. Learning: ${getLanguageLabel(profile.learningLanguage || "pt-pt")}.`;
+  els.networkList.innerHTML = (localAccessUrls || [])
+    .map((url) => `<span>${escapeHtml(url)}</span>`)
+    .join("");
+}
+
+function renderVoiceShelf(voiceSamples = []) {
+  const visibleVoiceSamples = voiceSamples.filter((sample) => sample.builtIn);
   if (state.selectedVoice && !visibleVoiceSamples.some((sample) => sample.id === state.selectedVoice.id)) {
-    state.selectedVoice = null;
+    state.selectedVoice = visibleVoiceSamples[0] || null;
   }
   if (!state.selectedVoice) {
     state.selectedVoice = visibleVoiceSamples[0] || null;
   }
 
+  els.voiceShelf.innerHTML = "";
   if (!visibleVoiceSamples.length) {
     els.voiceShelf.classList.add("empty-state");
-    els.voiceShelf.textContent = "No compatible narration voices are available right now.";
+    els.voiceShelf.textContent = "No compatible fast narration voices are available right now.";
     updateVoicePill();
     return;
   }
@@ -450,71 +335,42 @@ function renderVoiceShelf() {
   els.voiceShelf.classList.remove("empty-state");
 
   visibleVoiceSamples.forEach((sample) => {
-    const shell = document.createElement("div");
-    shell.className = "voice-card-shell";
-
     const button = document.createElement("button");
     button.type = "button";
-    const isActive = state.selectedVoice?.id === sample.id;
-    button.className = `voice-card${isActive ? " active" : ""}`;
-    button.dataset.voiceId = sample.id;
+    button.className = `voice-card${state.selectedVoice?.id === sample.id ? " active" : ""}`;
     button.innerHTML = `
-      <strong>${sample.name}</strong>
-      <small>${sample.vibe}</small>
-      <small>${languageLabels.get(sample.language) || sample.language.toUpperCase()}</small>
+      <strong>${escapeHtml(sample.name)}</strong>
+      <small>${escapeHtml(sample.vibe)}</small>
+      <small>${escapeHtml(getLanguageLabel(sample.language))}</small>
     `;
     button.addEventListener("click", () => {
       state.selectedVoice = sample;
-      renderVoiceShelf();
+      renderVoiceShelf(visibleVoiceSamples);
       void persistPreferences();
     });
-
-    shell.append(button);
-
-    els.voiceShelf.append(shell);
+    els.voiceShelf.append(button);
   });
 
   updateVoicePill();
-  refreshVoicePreview();
-}
-
-function getVisibleVoiceSamples() {
-  if (!state.modelInfo?.supportsCustomVoiceCloning) {
-    return state.voiceSamples.filter((sample) => sample.builtIn);
-  }
-  return state.voiceSamples;
 }
 
 async function loadPiperVoiceCatalog() {
   try {
-    if (els.piperCatalogStatus) {
-      els.piperCatalogStatus.textContent = "Loading voices...";
-    }
+    els.piperCatalogStatus.textContent = "Loading...";
     const payload = await fetchJson("/api/piper/voices");
     state.piperVoices = payload.voices || [];
     renderPiperCatalog();
   } catch (error) {
-    if (els.piperCatalogStatus) {
-      els.piperCatalogStatus.textContent = "Catalog unavailable";
-    }
-    if (els.piperCatalog) {
-      els.piperCatalog.classList.add("empty-state");
-      els.piperCatalog.textContent = error.message;
-    }
+    els.piperCatalogStatus.textContent = "Unavailable";
+    els.piperCatalog.classList.add("empty-state");
+    els.piperCatalog.textContent = error.message;
   }
 }
 
 function renderPiperCatalog() {
-  if (!els.piperCatalog) {
-    return;
-  }
-
   if (!state.piperVoices.length) {
     els.piperCatalog.classList.add("empty-state");
-    els.piperCatalog.textContent = "Loading the official Piper voices list...";
-    if (els.piperCatalogStatus) {
-      els.piperCatalogStatus.textContent = "Loading voices...";
-    }
+    els.piperCatalog.textContent = "Loading the official Piper voice catalog...";
     return;
   }
 
@@ -527,67 +383,135 @@ function renderPiperCatalog() {
     groups.get(groupKey).push(voice);
   });
 
+  els.piperCatalogStatus.textContent = `${state.piperVoices.length} voices`;
   els.piperCatalog.classList.remove("empty-state");
   els.piperCatalog.innerHTML = "";
-  if (els.piperCatalogStatus) {
-    els.piperCatalogStatus.textContent = `${state.piperVoices.length} voices`;
-  }
 
-  [...groups.entries()].forEach(([groupLabel, voices]) => {
+  [...groups.entries()].forEach(([label, voices]) => {
     const section = document.createElement("section");
     section.className = "piper-language-group";
-
-    const header = document.createElement("div");
-    header.className = "piper-language-header";
-    header.innerHTML = `
-      <strong>${escapeHtml(groupLabel)}</strong>
-      <span>${voices.length} voice${voices.length === 1 ? "" : "s"}</span>
+    section.innerHTML = `
+      <div class="piper-language-header">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${voices.length} voice${voices.length === 1 ? "" : "s"}</span>
+      </div>
     `;
 
     const chipList = document.createElement("div");
     chipList.className = "piper-chip-list";
-
     voices.forEach((voice) => {
-      const chip = document.createElement(voice.selectable ? "button" : "span");
-      chip.className = `piper-chip${voice.compatible ? " is-compatible" : ""}${voice.active ? " active" : ""}`;
+      const chip = document.createElement("span");
+      chip.className = "piper-chip";
       chip.innerHTML = `
         <strong>${escapeHtml(voice.name)}</strong>
         <small>${escapeHtml(voice.quality)}</small>
       `;
-
-      if (voice.selectable) {
-        chip.type = "button";
-        chip.addEventListener("click", () => {
-          const builtInVoice = getVisibleVoiceSamples().find((sample) => sample.builtIn) || null;
-          if (!builtInVoice) {
-            return;
-          }
-          state.selectedVoice = builtInVoice;
-          renderVoiceShelf();
-          void persistPreferences();
-        });
-      }
-
       chipList.append(chip);
     });
-
-    section.append(header, chipList);
+    section.append(chipList);
     els.piperCatalog.append(section);
   });
 }
 
+async function handlePreferenceFieldChange() {
+  updateLanguagePills();
+  await persistPreferences();
+}
+
+async function persistPreferences() {
+  try {
+    const payload = await fetchJson("/api/preferences", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sourceLanguage: els.bookLanguage.value,
+        listenerLanguage: els.listenerLanguage.value,
+        audiobookLanguage: els.audiobookLanguage.value,
+        selectedVoiceId: state.selectedVoice?.id || "storybook",
+      }),
+    });
+    state.preferences = payload.preferences || state.preferences;
+  } catch (error) {
+    console.warn("Preferences update failed:", error.message);
+  }
+}
+
+function setBookStatus(message, isError = false) {
+  els.bookStatus.textContent = message;
+  els.bookStatus.classList.toggle("is-error", isError);
+}
+
+function setBookImportState(isImporting) {
+  state.bookImporting = isImporting;
+  els.bookSubmit.disabled = isImporting;
+  els.bookSubmit.classList.toggle("is-loading", isImporting);
+  els.bookSubmit.textContent = isImporting ? "Saving..." : "Save to library";
+}
+
+async function handleBookImport(event) {
+  event.preventDefault();
+  if (state.bookImporting) {
+    return;
+  }
+
+  const hasText = Boolean(els.bookText.value.trim());
+  const file = els.bookFile.files[0];
+  if (!hasText && !file) {
+    setBookStatus("Paste some text or choose a file first.", true);
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("title", els.bookTitle.value.trim());
+  formData.append("text", els.bookText.value);
+  formData.append("sourceLanguage", els.bookLanguage.value);
+  formData.append("listenerLanguage", els.listenerLanguage.value);
+  formData.append("audiobookLanguage", els.audiobookLanguage.value);
+  if (file) {
+    formData.append("bookFile", file);
+  }
+
+  setBookImportState(true);
+  setBookStatus(file ? "Uploading and extracting your book..." : "Saving your text into the library...");
+
+  try {
+    const payload = await fetchJson("/api/books/import", {
+      method: "POST",
+      body: formData,
+    });
+    upsertLibraryBook(payload.book);
+    state.currentBook = payload.book;
+    state.currentPageIndex = payload.page?.index || 0;
+    renderLibraryBooks();
+    setBookStatus(
+      payload.existing
+        ? `"${payload.book.title}" was already in your library, so I kept the saved copy.`
+        : `"${payload.book.title}" is now on your shelf. Open it when you want to read.`
+    );
+    els.bookFile.value = "";
+  } catch (error) {
+    setBookStatus(error.message, true);
+  } finally {
+    setBookImportState(false);
+  }
+}
+
 function renderLibraryBooks() {
-  els.bookLibrary.classList.remove("empty-state");
-  els.bookLibrary.textContent = "";
+  els.bookLibrary.innerHTML = "";
   els.libraryCount.textContent = `${state.libraryBooks.length} book${state.libraryBooks.length === 1 ? "" : "s"}`;
 
   if (!state.libraryBooks.length) {
     els.bookLibrary.classList.add("empty-state");
-    els.bookLibrary.textContent = "Save a PDF, EPUB, or text file to start your library.";
+    els.bookLibrary.textContent = "Import a PDF, EPUB, TXT, or page photo to begin your library.";
     return;
   }
 
+  els.bookLibrary.classList.remove("empty-state");
+
   state.libraryBooks.forEach((book) => {
+    const percent = getBookProgressPercent(book);
     const shell = document.createElement("div");
     shell.className = "book-card-shell";
 
@@ -595,26 +519,26 @@ function renderLibraryBooks() {
     button.type = "button";
     button.className = `book-card${state.currentBook?.id === book.id ? " active" : ""}`;
     button.innerHTML = `
-      <div class="book-cover">${book.coverUrl ? `<img src="${book.coverUrl}" alt="${escapeHtml(book.title)} cover" />` : "VOX"}</div>
+      <div class="book-cover">${renderCoverMarkup(book.coverUrl, book.title)}</div>
       <div class="book-card-copy">
         <strong>${escapeHtml(book.title)}</strong>
-        <small>${book.totalPages} page${book.totalPages === 1 ? "" : "s"} · ${getLanguageLabel(book.detectedLanguage)}</small>
-        <small>Resume from page ${(book.progress?.pageIndex ?? 0) + 1}</small>
+        <small>${book.totalPages} page${book.totalPages === 1 ? "" : "s"} · ${escapeHtml(getLanguageLabel(book.detectedLanguage))}</small>
+        <div class="book-card-progress">
+          <small>Resume from page ${(book.progress?.pageIndex ?? 0) + 1}</small>
+          <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
+        </div>
       </div>
     `;
-    button.addEventListener("click", () => {
-      void loadLibraryBook(book.id, book.progress?.pageIndex || 0);
-    });
+    button.addEventListener("click", () => void loadLibraryBook(book.id, book.progress?.pageIndex || 0));
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "book-card-delete";
     deleteButton.textContent = "Delete";
-    deleteButton.setAttribute("aria-label", `Delete ${book.title}`);
-    deleteButton.addEventListener("click", async (event) => {
+    deleteButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      await handleDeleteBook(book.id);
+      void handleDeleteBook(book.id);
     });
 
     shell.append(button, deleteButton);
@@ -622,163 +546,48 @@ function renderLibraryBooks() {
   });
 }
 
+function renderReaderShell() {
+  const hasBook = Boolean(state.currentBook && state.currentPage);
+  const totalPages = state.currentBook?.totalPages || state.currentBook?.pages?.length || 0;
+  const currentPageNumber = hasBook ? state.currentPageIndex + 1 : 0;
+  const percent = hasBook ? getBookProgressPercent(state.currentBook) : 0;
+
+  els.readerBookCover.innerHTML = hasBook ? renderCoverMarkup(state.currentBook.coverUrl, state.currentBook.title) : "VX";
+  els.readerBookTitle.textContent = hasBook ? state.currentBook.title : "Select a book";
+  els.readerBookMeta.textContent = hasBook
+    ? `${totalPages} pages · ${getLanguageLabel(state.currentBook.detectedLanguage)} -> ${getLanguageLabel(state.currentBook.audiobookLanguage)}`
+    : "Open a book from your shelf to begin.";
+  els.readerProgressLabel.textContent = `${Math.round(percent)}%`;
+  els.readerPageLabel.textContent = hasBook ? `Page ${currentPageNumber} of ${totalPages}` : "Page 0 of 0";
+  els.readerProgressFill.style.width = `${percent}%`;
+  els.pageFooterNumber.textContent = hasBook ? `Page ${currentPageNumber}` : "Page 0";
+  els.goToPageInput.value = hasBook ? String(currentPageNumber) : "";
+  els.goToPageInput.max = String(totalPages || 1);
+  els.pagePrev.disabled = !hasBook || state.currentPageIndex <= 0;
+  els.pageNext.disabled = !hasBook || state.currentPageIndex >= totalPages - 1;
+  els.readerDeleteBook.disabled = !state.currentBook;
+  updateLanguagePills();
+  updateReaderStatusPill();
+
+  if (!hasBook) {
+    els.readerContent.classList.add("empty-state");
+    els.readerContent.textContent = "Open a book from your shelf to enter the reader.";
+    setTransportAvailability(false);
+    updateGenerationUi({
+      label: "Open a page to begin.",
+      progress: 0,
+      logs: ["Choose a book from your library, then generate audio for the page you want to hear."],
+    });
+  }
+}
+
 async function loadLibraryBook(bookId, pageIndex = 0, options = {}) {
   const payload = await fetchJson(`/api/books/${bookId}`);
   state.currentBook = payload.book;
-  state.currentPageIndex = pageIndex;
   upsertLibraryBook(payload.book);
   renderLibraryBooks();
-  renderPageList();
-  await openBookPage(pageIndex, { autoPrepare: false, ...options });
-}
-
-async function handleDeleteBook(bookId) {
-  const book = state.libraryBooks.find((candidate) => candidate.id === bookId);
-  if (!book) {
-    return;
-  }
-
-  const confirmed = window.confirm(`Delete "${book.title}" from your library?`);
-  if (!confirmed) {
-    return;
-  }
-
-  setBookStatus(`Deleting "${book.title}"...`);
-  try {
-    await fetchJson(`/api/books/${encodeURIComponent(bookId)}`, {
-      method: "DELETE",
-    });
-
-    state.libraryBooks = state.libraryBooks.filter((candidate) => candidate.id !== bookId);
-    renderLibraryBooks();
-
-    if (state.currentBook?.id === bookId) {
-      const nextBook = state.libraryBooks[0] || null;
-      if (nextBook) {
-        await loadLibraryBook(nextBook.id, nextBook.progress?.pageIndex || 0);
-      } else {
-        state.currentBook = null;
-        state.currentPageIndex = 0;
-        state.chapters = [];
-        state.fullText = "";
-        state.sourceText = "";
-        state.alignmentSegments = [];
-        state.alignmentWordTimings = [];
-        els.bookAudio.pause();
-        els.bookAudio.removeAttribute("src");
-        els.bookAudio.load();
-        setTransportAvailability(false);
-        renderPageList();
-        renderCurrentChapter();
-        updateLanguagePills();
-      }
-    }
-
-    setBookStatus(`Removed "${book.title}" from your library.`);
-  } catch (error) {
-    setBookStatus(error.message, true);
-  }
-}
-
-function upsertLibraryBook(book) {
-  state.libraryBooks = [
-    book,
-    ...state.libraryBooks.filter((existingBook) => existingBook.id !== book.id),
-  ];
-}
-
-function mergeBookSummary(bookSummary) {
-  if (!bookSummary) {
-    return;
-  }
-
-  const existingBook = state.currentBook?.id === bookSummary.id ? state.currentBook : null;
-  if (existingBook) {
-    state.currentBook = {
-      ...existingBook,
-      ...bookSummary,
-      pages: existingBook.pages || [],
-    };
-  }
-
-  upsertLibraryBook({
-    ...(state.libraryBooks.find((book) => book.id === bookSummary.id) || {}),
-    ...bookSummary,
-  });
-}
-
-function getVisiblePageIndexes(totalPages, currentPageIndex, maxVisible = 5) {
-  if (!totalPages) {
-    return [];
-  }
-
-  const visibleCount = Math.min(maxVisible, totalPages);
-  let start = Math.max(0, currentPageIndex - 1);
-  if (start + visibleCount > totalPages) {
-    start = Math.max(0, totalPages - visibleCount);
-  }
-
-  return Array.from({ length: visibleCount }, (_, offset) => start + offset);
-}
-
-function renderPageList() {
-  els.chapterList.classList.remove("empty-state");
-  els.chapterList.textContent = "";
-  const pages = state.currentBook?.pages || [];
-  els.chapterCount.textContent = `${pages.length} page${pages.length === 1 ? "" : "s"}`;
-  els.pageWindowLabel.textContent = pages.length ? `Page ${state.currentPageIndex + 1} of ${pages.length}` : "Current page";
-  els.pagePrev.disabled = !pages.length || state.currentPageIndex <= 0;
-  els.pageNext.disabled = !pages.length || state.currentPageIndex >= pages.length - 1;
-
-  if (!pages.length) {
-    els.chapterList.classList.add("empty-state");
-    els.chapterList.textContent = "Open a saved book to see its pages.";
-    return;
-  }
-
-  const visibleIndexes = getVisiblePageIndexes(pages.length, state.currentPageIndex);
-
-  visibleIndexes.forEach((index) => {
-    const page = pages[index];
-    const shell = document.createElement("div");
-    shell.className = "chapter-card-shell";
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `chapter-button${index === state.currentPageIndex ? " active" : ""}`;
-    button.dataset.pageIndex = String(index);
-    button.innerHTML = `
-      <span class="chapter-index">${String(index + 1).padStart(2, "0")}</span>
-      <span class="chapter-title">
-        <span>${escapeHtml(page.title || `Page ${index + 1}`)}</span>
-        <span class="chapter-meta">
-          <span class="status-chip">${escapeHtml(page.translationStatus || "idle")}</span>
-          <span class="status-chip">${escapeHtml(page.audioStatus || "idle")}</span>
-        </span>
-        <small class="chapter-preview">${escapeHtml(page.preview || "Open this page to start reading.")}</small>
-      </span>
-    `;
-    button.addEventListener("click", () => {
-      const turnDirection = index > state.currentPageIndex ? "forward" : index < state.currentPageIndex ? "backward" : "";
-      state.currentPageIndex = index;
-      setActiveChapterButton(index);
-      void openBookPage(index, { turnDirection });
-    });
-
-    const removeButton = document.createElement("button");
-    removeButton.type = "button";
-    removeButton.className = "chapter-delete-button";
-    removeButton.textContent = "Remove";
-    removeButton.setAttribute("aria-label", `Remove ${page.title || `Page ${index + 1}`}`);
-    removeButton.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      await handleDeletePage(index);
-    });
-
-    shell.append(button, removeButton);
-    els.chapterList.append(shell);
-  });
+  switchView("reader");
+  await openBookPage(pageIndex, options);
 }
 
 async function openBookPage(pageIndex, options = {}) {
@@ -788,23 +597,8 @@ async function openBookPage(pageIndex, options = {}) {
 
   const safePageIndex = Math.max(0, Math.min((state.currentBook.pages || []).length - 1, pageIndex));
   const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${safePageIndex}`);
-  state.currentPageIndex = payload.page.index;
   applyBookPage(state.currentBook, payload.page, options);
-  renderPageList();
   await saveProgress();
-}
-
-function mergePageSummary(summaryPage, page) {
-  if (!summaryPage) {
-    return;
-  }
-
-  summaryPage.title = page.title || summaryPage.title || `Page ${page.index + 1}`;
-  summaryPage.preview = truncate(page.displayText || page.sourceText || "", 130);
-  summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
-  summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
-  summaryPage.audioEngine = page.audioEngine || summaryPage.audioEngine || "";
-  summaryPage.ready = Boolean(page.audioUrl);
 }
 
 function applyBookPage(book, page, options = {}) {
@@ -814,37 +608,28 @@ function applyBookPage(book, page, options = {}) {
   const previousAudioTime = preservePlaybackState ? Number(els.bookAudio.currentTime || 0) : 0;
   const shouldResumePlayback = preservePlaybackState && !els.bookAudio.paused && !els.bookAudio.ended;
   const sameAudioUrl = Boolean(page.audioUrl && state.currentAudioUrl && state.currentAudioUrl === page.audioUrl);
+
   state.currentBook = book;
+  state.currentPage = page;
   state.currentPageIndex = page.index;
-  const summaryPage = state.currentBook?.pages?.[page.index];
-  mergePageSummary(summaryPage, page);
-  state.title = book.title;
-  state.sourceText = page.sourceText || "";
-  state.fullText = page.displayText || "";
-  state.chapters = [
-    {
-      title: page.title || `Page ${page.index + 1}`,
-      content: page.displayText || "",
-    },
-  ];
-  state.currentChapterIndex = 0;
   state.detectedBookLanguage = book.detectedLanguage || "auto";
   state.readerLanguage = page.translatedText ? book.audiobookLanguage || "pt-pt" : book.detectedLanguage || "auto";
+  state.currentAudioUrl = page.audioUrl || "";
   state.alignmentSegments = page.alignment?.segments || [];
   state.alignmentWordTimings = buildAlignmentWordTimings(state.alignmentSegments);
   state.lastHighlightedGlobalIndex = -1;
   state.followPlayback = true;
-  computeChapterWordMetrics();
-  els.readerTitle.textContent = `${book.title} · ${page.title || `Page ${page.index + 1}`}`;
-  renderCurrentChapter();
-  els.readerContent.scrollTop = preserveViewport ? previousScrollTop : 0;
+  syncBookSummaryPage(page);
+  renderReaderShell();
+  renderReaderContent(page.displayText || page.sourceText || "");
   if (!options.skipAnimate) {
     animatePageTurn(options.turnDirection || "");
   }
-  updateLanguagePills();
+  if (preserveViewport) {
+    els.readerContent.scrollTop = previousScrollTop;
+  }
 
   if (page.audioUrl) {
-    state.currentAudioUrl = page.audioUrl;
     setTransportAvailability(true);
     if (!sameAudioUrl) {
       els.bookAudio.src = page.audioUrl;
@@ -870,36 +655,15 @@ function applyBookPage(book, page, options = {}) {
       void els.bookAudio.play().catch(() => {});
     }
   } else {
-    state.currentAudioUrl = "";
     els.bookAudio.pause();
     els.bookAudio.removeAttribute("src");
     els.bookAudio.load();
     setTransportAvailability(false);
   }
 
-  const needsTranslation =
-    (book.detectedLanguage || "auto") !== "auto" &&
-    normalizeLanguageCode(book.detectedLanguage || "auto") !== normalizeLanguageCode(book.audiobookLanguage || "pt-pt") &&
-    !page.translatedText;
-  const generationLogs = page.logs?.length
-    ? page.logs
-    : [
-        `Translation: ${page.translationStatus || (needsTranslation ? "idle" : "source")}.`,
-        `Audio: ${page.audioStatus || "idle"}.`,
-      ];
-  const generationLabel =
-    page.audioUrl || page.translationStatus === "running" || page.audioStatus === "running"
-      ? buildGenerationLabelFromPage(page)
-      : needsTranslation
-        ? "This page is still in the original language. Click Generate audiobook to translate it and create the voice."
-        : "This page is ready to generate as an audiobook.";
-  updateGenerationUi({
-    label: generationLabel,
-    progress: inferGenerationProgressFromPage(page),
-    logs: generationLogs,
-  });
-  els.generationStatus.classList.remove("hidden");
-  els.generateButton.textContent = page.audioUrl ? "Regenerate audiobook" : "Generate audiobook";
+  updateGenerationUiFromPage(page);
+  updateReaderStatusPill();
+  applyLookupHighlight();
 
   if ((page.translationStatus === "running" || page.audioStatus === "running") && !page.audioUrl) {
     startPageStatusPolling(book.id, page.index);
@@ -910,96 +674,16 @@ function applyBookPage(book, page, options = {}) {
   if (page.audioUrl) {
     void warmUpcomingPagesFromCurrent();
   }
+
+  switchView("reader");
 }
 
-async function warmUpcomingPagesFromCurrent() {
-  if (!state.currentBook?.id || !state.selectedVoice?.id) {
-    return;
-  }
-
-  const currentPage = state.currentBook.pages?.[state.currentPageIndex];
-  if (!currentPage?.ready) {
-    return;
-  }
-
-  const warmKey = `${state.currentBook.id}:${state.currentPageIndex}:${state.selectedVoice.id}`;
-  if (state.lastWarmWindowKey === warmKey) {
-    return;
-  }
-  state.lastWarmWindowKey = warmKey;
-
-  try {
-    await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}/prepare`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        voiceSampleId: state.selectedVoice.id,
-      }),
-    });
-  } catch {
-    return;
-  }
-
-  await refreshUpcomingPageStatuses(state.currentBook.id, state.currentPageIndex);
-  window.setTimeout(() => {
-    void refreshUpcomingPageStatuses(state.currentBook.id, state.currentPageIndex);
-  }, 1400);
-}
-
-async function refreshUpcomingPageStatuses(bookId, currentPageIndex, warmDepth = 3) {
-  if (!state.currentBook || state.currentBook.id !== bookId) {
-    return;
-  }
-
-  const indexes = [];
-  for (let offset = 1; offset <= warmDepth; offset += 1) {
-    const nextIndex = currentPageIndex + offset;
-    if (nextIndex >= (state.currentBook.pages || []).length) {
-      break;
-    }
-    indexes.push(nextIndex);
-  }
-
-  if (!indexes.length) {
-    return;
-  }
-
-  const pages = await Promise.all(
-    indexes.map((index) =>
-      fetchJson(`/api/books/${bookId}/pages/${index}`)
-        .then((payload) => payload.page)
-        .catch(() => null)
-    )
-  );
-
-  let changed = false;
-  pages.forEach((page) => {
-    if (!page) {
-      return;
-    }
-    const summaryPage = state.currentBook?.pages?.[page.index];
-    if (!summaryPage) {
-      return;
-    }
-    summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
-    summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
-    summaryPage.ready = Boolean(page.audioUrl);
-    summaryPage.preview = truncate(page.displayText || page.sourceText || "", 130);
-    changed = true;
-  });
-
-  if (changed) {
-    renderPageList();
-  }
-}
-
-function renderCurrentChapter() {
-  const chapter = state.chapters[state.currentChapterIndex];
-  if (!chapter) {
+function renderReaderContent(text) {
+  if (!text.trim()) {
     els.readerContent.classList.add("empty-state");
-    els.readerContent.textContent = "Open a saved book to start reading.";
+    els.readerContent.textContent = "This page has no text yet.";
+    state.currentTokens = [];
+    state.totalWordCount = 0;
     return;
   }
 
@@ -1008,56 +692,41 @@ function renderCurrentChapter() {
 
   const article = document.createElement("article");
   article.className = "reader-article";
-  const chapterOffset = state.chapterWordOffsets[state.currentChapterIndex] || 0;
-  let localWordIndex = 0;
-
-  const paragraphs = chapter.content
+  const paragraphs = text
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 
-  state.currentChapterTokens = [];
+  state.currentTokens = [];
+  let globalIndex = 0;
 
-  paragraphs.forEach((paragraph, paragraphIndex) => {
+  paragraphs.forEach((paragraph) => {
     const p = document.createElement("p");
     const tokens = tokenizeParagraph(paragraph);
-
     tokens.forEach((token) => {
       if (token.type === "word") {
         const span = document.createElement("span");
         span.className = "token";
         span.textContent = token.value;
-        span.dataset.globalIndex = String(chapterOffset + localWordIndex);
-        span.addEventListener("click", (event) => handleWordTranslate(token.value, event));
-        state.currentChapterTokens.push(span);
-        localWordIndex += 1;
+        span.dataset.globalIndex = String(globalIndex);
+        span.dataset.normalized = normalizeComparableText(token.value);
+        if (isSavedSingleWord(token.value)) {
+          span.classList.add("is-saved");
+        }
+        span.addEventListener("click", () => void handleWordLookup(token.value));
+        state.currentTokens.push(span);
+        globalIndex += 1;
         p.append(span);
       } else {
         p.append(document.createTextNode(token.value));
       }
     });
-
-    p.dataset.paragraphIndex = String(paragraphIndex);
     article.append(p);
   });
 
+  state.totalWordCount = globalIndex;
   els.readerContent.append(article);
-}
-
-function syncVoiceCaptureCapabilities() {
-  const supportsCustomVoiceCloning = Boolean(state.modelInfo?.supportsCustomVoiceCloning);
-  const hideCustomVoiceUi = !supportsCustomVoiceCloning;
-  if (els.recordingCard) {
-    els.recordingCard.classList.toggle("hidden", hideCustomVoiceUi);
-  }
-  els.recordToggle.disabled = !supportsCustomVoiceCloning;
-  els.uploadVoiceButton.disabled = !supportsCustomVoiceCloning;
-  els.voiceFile.disabled = !supportsCustomVoiceCloning;
-
-  if (!supportsCustomVoiceCloning) {
-    els.recordingStatus.textContent =
-      "Fast VPS mode is using built-in Piper voices. Custom clone samples are hidden in this backend.";
-  }
+  applyLookupHighlight();
 }
 
 function tokenizeParagraph(paragraph) {
@@ -1078,270 +747,125 @@ function tokenizeParagraph(paragraph) {
   return tokens.filter((token) => token.value);
 }
 
-async function handleWordTranslate(word, event) {
-  const selectionText = getActiveReaderSelectionText();
-  if (selectionText) {
-    await handleSelectionTranslate(selectionText);
+function applyLookupHighlight() {
+  state.currentTokens.forEach((token) => {
+    token.classList.toggle("is-looked-up", Boolean(state.activeLookupSourceNormalized) && token.dataset.normalized === state.activeLookupSourceNormalized);
+    token.classList.toggle("is-saved", isSavedSingleWord(token.textContent || ""));
+  });
+}
+
+function isSavedSingleWord(word) {
+  const normalizedWord = normalizeComparableText(word);
+  return state.savedWords.some((entry) => !/\s/u.test(entry.source) && normalizeComparableText(entry.source) === normalizedWord);
+}
+
+function syncBookSummaryPage(page) {
+  const summaryPage = state.currentBook?.pages?.[page.index];
+  if (!summaryPage) {
+    return;
+  }
+  summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
+  summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
+  summaryPage.ready = Boolean(page.audioUrl);
+  summaryPage.audioEngine = page.audioEngine || summaryPage.audioEngine || "";
+}
+
+function upsertLibraryBook(book) {
+  const summary = summarizeBook(book);
+  state.libraryBooks = [summary, ...state.libraryBooks.filter((existingBook) => existingBook.id !== summary.id)];
+}
+
+function summarizeBook(book) {
+  return {
+    id: book.id,
+    title: book.title,
+    coverUrl: book.coverUrl || "",
+    sourceType: book.sourceType,
+    detectedLanguage: book.detectedLanguage,
+    audiobookLanguage: book.audiobookLanguage,
+    totalPages: book.totalPages || book.pages?.length || 0,
+    createdAt: book.createdAt,
+    updatedAt: book.updatedAt,
+    progress: book.progress || { pageIndex: 0, audioTime: 0 },
+  };
+}
+
+function getBookProgressPercent(book) {
+  const totalPages = Math.max(1, book.totalPages || book.pages?.length || 1);
+  return Math.min(100, Math.max(0, (((book.progress?.pageIndex || 0) + 1) / totalPages) * 100));
+}
+
+async function handleDeleteBook(bookId) {
+  const book = state.libraryBooks.find((candidate) => candidate.id === bookId);
+  if (!book) {
     return;
   }
 
-  try {
-    const payload = await translate(word);
-    showWordPopover({
-      source: word,
-      translatedText: payload.translatedText,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  } catch (error) {
-    showWordPopover({
-      source: word,
-      translatedText: error.message,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }
-}
-
-function scheduleSelectionTranslate() {
-  clearTimeout(state.selectionTranslateTimer);
-  state.selectionTranslateTimer = window.setTimeout(async () => {
-    const text = getActiveReaderSelectionText();
-    if (!text || text === state.lastSelectionText) {
-      return;
-    }
-    state.lastSelectionText = text;
-    await handleSelectionTranslate(text);
-  }, 140);
-}
-
-function getActiveReaderSelectionText() {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed) {
-    state.lastSelectionText = "";
-    return "";
-  }
-
-  const text = selection.toString().trim();
-  if (!text || text.length < 2 || text.length > 220) {
-    return "";
-  }
-
-  const anchorInReader = els.readerContent.contains(selection.anchorNode);
-  const focusInReader = els.readerContent.contains(selection.focusNode);
-  if (!anchorInReader && !focusInReader) {
-    return "";
-  }
-  return text;
-}
-
-async function handleSelectionTranslate(text = getActiveReaderSelectionText()) {
-  if (!text) {
-    return;
-  }
-  try {
-    setSelectionTranslation(`Translating "${truncate(text, 60)}"...`, true);
-    const payload = await translate(text);
-    setSelectionTranslation(
-      `<div class="translation-source">${escapeHtml(text)}</div><div class="translation-result">${escapeHtml(payload.translatedText)}</div>`,
-      false,
-      true
-    );
-  } catch (error) {
-    setSelectionTranslation(error.message, true);
-  }
-}
-
-function setSelectionTranslation(message, isError, allowHtml = false) {
-  els.selectionTranslation.classList.remove("hidden");
-  if (allowHtml) {
-    els.selectionTranslation.innerHTML = message;
-  } else {
-    els.selectionTranslation.textContent = message;
-  }
-  els.selectionTranslation.style.borderColor = isError
-    ? "rgba(255, 132, 132, 0.35)"
-    : "rgba(124, 255, 186, 0.22)";
-}
-
-function hideWordPopover() {
-  els.wordPopover.classList.add("hidden");
-}
-
-function showWordPopover({ source, translatedText, x, y }) {
-  els.wordPopover.innerHTML = `
-    <div class="translation-source">${escapeHtml(source)}</div>
-    <div class="translation-result">${escapeHtml(translatedText)}</div>
-  `;
-  els.wordPopover.style.left = `${Math.min(x + 14, window.innerWidth - 280)}px`;
-  els.wordPopover.style.top = `${Math.min(y + 14, window.innerHeight - 160)}px`;
-  els.wordPopover.classList.remove("hidden");
-}
-
-async function toggleRecording() {
-  if (state.mediaRecorder && state.mediaRecorder.state === "recording") {
-    state.mediaRecorder.stop();
-    return;
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    state.recordedChunks = [];
-    const mediaRecorder = new MediaRecorder(stream);
-    state.mediaRecorder = mediaRecorder;
-
-    mediaRecorder.addEventListener("dataavailable", (event) => {
-      if (event.data.size > 0) {
-        state.recordedChunks.push(event.data);
-      }
-    });
-
-    mediaRecorder.addEventListener("stop", async () => {
-      stream.getTracks().forEach((track) => track.stop());
-      const blob = new Blob(state.recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-      const file = new File([blob], "voice-sample.webm", { type: blob.type });
-      await uploadVoiceFile(file);
-    });
-
-    mediaRecorder.start();
-    els.recordToggle.textContent = "Stop recording";
-    els.recordingStatus.textContent = "Recording... speak clearly for around 10 to 20 seconds.";
-  } catch (error) {
-    els.recordingStatus.textContent = `Microphone error: ${error.message}`;
-  }
-}
-
-async function handleVoiceUploadFromPicker() {
-  const file = els.voiceFile.files[0];
-  if (!file) {
-    return;
-  }
-  try {
-    await uploadVoiceFile(file);
-  } finally {
-    els.voiceFile.value = "";
-  }
-}
-
-async function uploadVoiceFile(file) {
-  const formData = new FormData();
-  formData.append("voiceSample", file);
-  formData.append("name", getVoiceLabelValue());
-  formData.append("language", els.audiobookLanguage.value);
-
-  els.recordToggle.textContent = "Record voice";
-  els.recordingStatus.textContent = "Uploading your custom voice sample...";
-
-  try {
-    const payload = await fetchJson("/api/voice-sample", {
-      method: "POST",
-      body: formData,
-    });
-
-    state.customVoice = payload.voiceSample;
-    state.selectedVoice = payload.voiceSample;
-    state.voiceSamples = [
-      payload.voiceSample,
-      ...state.voiceSamples.filter((sample) => sample.id !== payload.voiceSample.id),
-    ];
-    renderVoiceShelf();
-    updateVoicePill();
-    els.recordingStatus.textContent = `Custom voice ready: ${payload.voiceSample.name}`;
-    els.voiceLabel.value = payload.voiceSample.name;
-    await persistPreferences();
-  } catch (error) {
-    els.recordingStatus.textContent = error.message;
-  }
-}
-
-async function handleDeleteVoiceSample(voiceSampleId) {
-  const sample = state.voiceSamples.find((candidate) => candidate.id === voiceSampleId);
-  if (!sample || sample.builtIn) {
-    return;
-  }
-
-  const confirmed = window.confirm(`Delete "${sample.name}" from your saved voices?`);
+  const confirmed = window.confirm(`Delete "${book.title}" from your library?`);
   if (!confirmed) {
     return;
   }
 
   try {
-    els.recordingStatus.textContent = `Deleting "${sample.name}"...`;
-    await fetchJson(`/api/voice-sample/${encodeURIComponent(voiceSampleId)}`, {
-      method: "DELETE",
-    });
-
-    state.voiceSamples = state.voiceSamples.filter((candidate) => candidate.id !== voiceSampleId);
-    if (state.selectedVoice?.id === voiceSampleId) {
-      state.selectedVoice = state.voiceSamples[0] || null;
+    await fetchJson(`/api/books/${encodeURIComponent(bookId)}`, { method: "DELETE" });
+    state.libraryBooks = state.libraryBooks.filter((candidate) => candidate.id !== bookId);
+    if (state.currentBook?.id === bookId) {
+      state.currentBook = null;
+      state.currentPage = null;
+      state.currentPageIndex = 0;
+      state.activeLookupSourceNormalized = "";
+      state.lookup = null;
+      els.bookAudio.pause();
+      els.bookAudio.removeAttribute("src");
+      els.bookAudio.load();
+      stopPageStatusPolling();
     }
-    if (state.customVoice?.id === voiceSampleId) {
-      state.customVoice = null;
-    }
-
-    renderVoiceShelf();
-    els.recordingStatus.textContent = `"${sample.name}" deleted.`;
-    await persistPreferences();
+    renderLibraryBooks();
+    renderReaderShell();
+    renderSavedWords();
+    switchView("library");
+    setBookStatus(`Removed "${book.title}" from your shelf.`);
   } catch (error) {
-    els.recordingStatus.textContent = error.message;
+    setBookStatus(error.message, true);
   }
+}
+
+async function handleDeleteCurrentBook() {
+  if (!state.currentBook) {
+    return;
+  }
+  await handleDeleteBook(state.currentBook.id);
+}
+
+async function handleGoToPageSubmit(event) {
+  event.preventDefault();
+  if (!state.currentBook) {
+    return;
+  }
+
+  const targetPage = Number(els.goToPageInput.value);
+  if (!Number.isFinite(targetPage) || targetPage < 1) {
+    return;
+  }
+  const pageIndex = Math.min((state.currentBook.pages || []).length - 1, targetPage - 1);
+  const direction = pageIndex > state.currentPageIndex ? "forward" : pageIndex < state.currentPageIndex ? "backward" : "";
+  await openBookPage(pageIndex, { turnDirection: direction });
 }
 
 async function openAdjacentPage(direction) {
   if (!state.currentBook?.pages?.length) {
     return;
   }
-
   const targetIndex = Math.max(0, Math.min(state.currentBook.pages.length - 1, state.currentPageIndex + direction));
   if (targetIndex === state.currentPageIndex) {
     return;
   }
-
-  await openBookPage(targetIndex);
-}
-
-async function handleDeletePage(pageIndex) {
-  if (!state.currentBook) {
-    return;
-  }
-
-  const page = state.currentBook.pages?.[pageIndex];
-  const label = page?.title || `Page ${pageIndex + 1}`;
-  const confirmed = window.confirm(`Remove ${label} from this saved book?`);
-  if (!confirmed) {
-    return;
-  }
-
-  try {
-    updateGenerationUi({
-      label: `Removing ${label}...`,
-      progress: 0,
-      logs: [`Removing ${label} from the saved reading flow.`],
-    });
-    const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${pageIndex}`, {
-      method: "DELETE",
-    });
-
-    upsertLibraryBook(payload.book);
-    state.currentBook = payload.book;
-    renderLibraryBooks();
-    applyBookPage(payload.book, payload.page);
-    renderPageList();
-    await saveProgress();
-    setBookStatus(`${label} removed from "${payload.book.title}".`);
-  } catch (error) {
-    setBookStatus(error.message, true);
-    updateGenerationUi({
-      label: error.message,
-      progress: 0,
-      logs: [error.message],
-    });
-  }
+  await openBookPage(targetIndex, { turnDirection: direction > 0 ? "forward" : "backward" });
 }
 
 async function handlePrepareCurrentPage(options = {}) {
-  if (!state.currentBook) {
-    setSelectionTranslation("Save a book into your library first.", true);
+  if (!state.currentBook || !state.currentPage) {
+    setLookupError("Open a book first.");
     return;
   }
 
@@ -1349,22 +873,22 @@ async function handlePrepareCurrentPage(options = {}) {
     return;
   }
 
+  const requestedBookId = state.currentBook.id;
+  const requestedPageIndex = state.currentPageIndex;
+
   try {
-    const requestedBookId = state.currentBook.id;
-    const requestedPageIndex = state.currentPageIndex;
-    const requestedPageLabel = requestedPageIndex + 1;
     state.pagePreparing = true;
     els.generateButton.disabled = true;
-    els.generateButton.textContent = "Generating audiobook...";
-    els.generationStatus.classList.remove("hidden");
+    els.generateButton.textContent = "Generating...";
     updateGenerationUi({
-      label: options.statusMessage || `Preparing page ${requestedPageLabel}...`,
+      label: `Preparing page ${requestedPageIndex + 1}...`,
       progress: 16,
       logs: [
-        `Page ${requestedPageLabel}: checking translation state.`,
+        `Page ${requestedPageIndex + 1}: checking translation state.`,
         "If needed, Voxenor will translate first and then generate the narration.",
       ],
     });
+
     startPageStatusPolling(requestedBookId, requestedPageIndex);
 
     const payload = await fetchJson(`/api/books/${requestedBookId}/pages/${requestedPageIndex}/prepare`, {
@@ -1382,68 +906,16 @@ async function handlePrepareCurrentPage(options = {}) {
     applyBookPage(state.currentBook || payload.book, payload.page, {
       autoplay: Boolean(options.autoplay),
     });
-    renderPageList();
-    await persistPreferences();
 
     const generationStillRunning =
       !payload.page.audioUrl &&
       (payload.started || payload.page.translationStatus === "running" || payload.page.audioStatus === "running");
 
-    if (generationStillRunning) {
-      startPageStatusPolling(requestedBookId, requestedPageIndex);
-      if (!payload.page.logs?.length) {
-        updateGenerationUi({
-          label: `Preparing page ${requestedPageLabel}...`,
-          progress: 18,
-          logs: [
-            `Page ${requestedPageLabel}: translation and narration started.`,
-            "Voxenor will keep polling until this page is ready.",
-          ],
-        });
-      }
-      setBookStatus(`Started generating page ${requestedPageLabel} in "${payload.book.title}".`);
-      return;
+    if (!generationStillRunning) {
+      stopPageStatusPolling();
     }
-
-    stopPageStatusPolling();
-    setBookStatus(`Page ${payload.page.index + 1} is ready in "${payload.book.title}".`);
   } catch (error) {
-    const requestedBookId = state.currentBook?.id;
-    const requestedPageIndex = state.currentPageIndex;
-
-    if (requestedBookId) {
-      try {
-        const recovery = await fetchJson(`/api/books/${requestedBookId}/pages/${requestedPageIndex}`);
-        const recoveryPage = recovery.page;
-        const summaryPage = state.currentBook?.pages?.[requestedPageIndex];
-        if (summaryPage) {
-          summaryPage.translationStatus = recoveryPage.translationStatus || summaryPage.translationStatus || "idle";
-          summaryPage.audioStatus = recoveryPage.audioStatus || summaryPage.audioStatus || "idle";
-          summaryPage.ready = Boolean(recoveryPage.audioUrl);
-        }
-
-        if (recoveryPage.audioUrl || recoveryPage.translationStatus === "running" || recoveryPage.audioStatus === "running") {
-          applyBookPage(state.currentBook, recoveryPage, {
-            autoplay: Boolean(options.autoplay && recoveryPage.audioUrl),
-          });
-          renderPageList();
-
-          if (recoveryPage.audioUrl) {
-            stopPageStatusPolling();
-            setBookStatus(`Page ${recoveryPage.index + 1} is ready in "${state.currentBook.title}".`);
-          } else {
-            startPageStatusPolling(requestedBookId, requestedPageIndex);
-            setBookStatus("Generation is still running in the background.");
-          }
-          return;
-        }
-      } catch {
-        // Fall through to the normal error path if even the recovery poll fails.
-      }
-    }
-
-    stopPageStatusPolling();
-    setBookStatus(error.message, true);
+    setLookupError(error.message);
     updateGenerationUi({
       label: error.message,
       progress: 0,
@@ -1452,144 +924,57 @@ async function handlePrepareCurrentPage(options = {}) {
   } finally {
     state.pagePreparing = false;
     els.generateButton.disabled = false;
-    if (state.currentBook) {
-      const currentPage = state.currentBook.pages?.[state.currentPageIndex];
-      els.generateButton.textContent = currentPage?.ready ? "Regenerate audiobook" : "Generate audiobook";
-    } else {
-      els.generateButton.textContent = "Generate audiobook";
-    }
+    els.generateButton.textContent = state.currentPage?.audioUrl ? "Regenerate audiobook" : "Generate audiobook";
   }
 }
 
-async function handlePlayToggle() {
-  if (!state.currentBook) {
+function mergeBookSummary(bookSummary) {
+  if (!bookSummary) {
     return;
   }
 
-  if (!els.bookAudio.src) {
-    updateGenerationUi({
-      label: `Page ${state.currentPageIndex + 1} is not ready yet.`,
-      progress: 0,
-      logs: ["Choose the narration voice and click Generate audiobook first."],
-    });
-    els.generationStatus.classList.remove("hidden");
-    return;
+  const existingBook = state.currentBook?.id === bookSummary.id ? state.currentBook : null;
+  if (existingBook) {
+    state.currentBook = {
+      ...existingBook,
+      ...bookSummary,
+      pages: existingBook.pages || [],
+    };
   }
 
-  await els.bookAudio.play();
-}
-
-async function handleAudioEnded() {
-  stopPlaybackTracking();
-  if (!state.currentBook || !state.currentBook.pages?.length) {
-    return;
-  }
-
-  const nextPageIndex = state.currentPageIndex + 1;
-  if (nextPageIndex >= state.currentBook.pages.length) {
-    return;
-  }
-
-  await loadLibraryBook(state.currentBook.id, nextPageIndex, { turnDirection: "forward" });
-  if (els.bookAudio.src) {
-    await els.bookAudio.play().catch(() => {});
-    return;
-  }
-
-  await handlePrepareCurrentPage({ autoplay: true });
-}
-
-function setTransportAvailability(isReady) {
-  if (els.seekBackward) {
-    els.seekBackward.disabled = !isReady;
-  }
-  if (els.seekForward) {
-    els.seekForward.disabled = !isReady;
-  }
-  if (els.restartToggle) {
-    els.restartToggle.disabled = !isReady;
-  }
-  els.playToggle.disabled = !isReady;
-  els.pauseToggle.disabled = !isReady;
-  if (els.stopToggle) {
-    els.stopToggle.disabled = !isReady;
-  }
-}
-
-function seekCurrentAudio(deltaSeconds) {
-  if (!els.bookAudio.src || !Number.isFinite(els.bookAudio.duration)) {
-    return;
-  }
-
-  const nextTime = Math.max(0, Math.min(els.bookAudio.duration, (els.bookAudio.currentTime || 0) + deltaSeconds));
-  els.bookAudio.currentTime = nextTime;
-  syncPlaybackHighlight();
-  scheduleProgressSave();
-}
-
-function handleStopCurrentPage() {
-  if (!els.bookAudio.src) {
-    return;
-  }
-  els.bookAudio.pause();
-  els.bookAudio.currentTime = 0;
-  state.lastHighlightedGlobalIndex = -1;
-  syncPlaybackHighlight();
-  void saveProgress();
-}
-
-async function handleRestartCurrentPage() {
-  if (!els.bookAudio.src) {
-    return;
-  }
-  els.bookAudio.currentTime = 0;
-  state.lastHighlightedGlobalIndex = -1;
-  syncPlaybackHighlight();
-  await els.bookAudio.play().catch(() => {});
-}
-
-function animatePageTurn(direction) {
-  if (!els.readerPage) {
-    return;
-  }
-
-  els.readerPage.classList.remove("turn-forward", "turn-backward");
-  window.clearTimeout(state.readerTurnTimer);
-  if (!direction) {
-    return;
-  }
-
-  const className = direction === "backward" ? "turn-backward" : "turn-forward";
-  requestAnimationFrame(() => {
-    els.readerPage.classList.add(className);
-    state.readerTurnTimer = window.setTimeout(() => {
-      els.readerPage.classList.remove(className);
-    }, 760);
+  upsertLibraryBook({
+    ...(state.libraryBooks.find((book) => book.id === bookSummary.id) || {}),
+    ...bookSummary,
   });
 }
 
-function scheduleProgressSave() {
-  clearTimeout(state.progressSaveTimer);
-  state.progressSaveTimer = window.setTimeout(() => {
-    void saveProgress();
-  }, 800);
-}
+function updateGenerationUiFromPage(page) {
+  const needsTranslation =
+    (state.currentBook?.detectedLanguage || "auto") !== "auto" &&
+    normalizeLanguageCode(state.currentBook?.detectedLanguage || "auto") !==
+      normalizeLanguageCode(state.currentBook?.audiobookLanguage || "pt-pt") &&
+    !page.translatedText;
 
-async function saveProgress() {
-  if (!state.currentBook) {
-    return;
-  }
+  const logs = page.logs?.length
+    ? page.logs
+    : [
+        `Translation: ${page.translationStatus || (needsTranslation ? "idle" : "source")}.`,
+        `Audio: ${page.audioStatus || "idle"}.`,
+      ];
 
-  await fetchJson(`/api/books/${state.currentBook.id}/progress`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      pageIndex: state.currentPageIndex,
-      audioTime: els.bookAudio.currentTime || 0,
-    }),
-  }).catch(() => {});
+  const label =
+    page.audioUrl || page.translationStatus === "running" || page.audioStatus === "running"
+      ? buildGenerationLabelFromPage(page)
+      : needsTranslation
+        ? "This page still needs PT-PT translation before the audio can be generated."
+        : "This page is ready to generate as audio.";
+
+  updateGenerationUi({
+    label,
+    progress: inferGenerationProgressFromPage(page),
+    logs,
+  });
+  els.generateButton.textContent = page.audioUrl ? "Regenerate audiobook" : "Generate audiobook";
 }
 
 function updateGenerationUi({ label, progress, logs }) {
@@ -1649,6 +1034,31 @@ function buildGenerationLabelFromPage(page) {
   return `Page ${page.index + 1} is waiting for generation.`;
 }
 
+function updateReaderStatusPill() {
+  if (!state.currentPage) {
+    els.readerStatusPill.textContent = "Idle";
+    return;
+  }
+
+  if (state.currentPage.audioUrl) {
+    els.readerStatusPill.textContent = "Ready";
+    return;
+  }
+  if (state.currentPage.audioStatus === "running") {
+    els.readerStatusPill.textContent = "Generating";
+    return;
+  }
+  if (state.currentPage.translationStatus === "running") {
+    els.readerStatusPill.textContent = "Translating";
+    return;
+  }
+  if (state.currentPage.translationStatus === "ready") {
+    els.readerStatusPill.textContent = "Text ready";
+    return;
+  }
+  els.readerStatusPill.textContent = "Idle";
+}
+
 function stopPageStatusPolling() {
   if (state.pageStatusPoller) {
     window.clearInterval(state.pageStatusPoller);
@@ -1669,8 +1079,7 @@ function startPageStatusPolling(bookId, pageIndex) {
     try {
       const payload = await fetchJson(`/api/books/${bookId}/pages/${pageIndex}`);
       const page = payload.page;
-      const summaryPage = state.currentBook?.pages?.[pageIndex];
-      mergePageSummary(summaryPage, page);
+      syncBookSummaryPage(page);
 
       if (state.currentBook?.id === bookId && state.currentPageIndex === pageIndex) {
         applyBookPage(state.currentBook, page, {
@@ -1678,14 +1087,13 @@ function startPageStatusPolling(bookId, pageIndex) {
           preservePlaybackState: true,
           skipAnimate: true,
         });
-        renderPageList();
       }
 
       if (page.audioUrl) {
         stopPageStatusPolling();
       }
     } catch {
-      // Keep polling quietly while the long-running prepare request is active.
+      // Keep polling quietly while background work continues.
     } finally {
       state.pageStatusPollerBusy = false;
     }
@@ -1695,6 +1103,76 @@ function startPageStatusPolling(bookId, pageIndex) {
   state.pageStatusPoller = window.setInterval(() => {
     void poll();
   }, 1400);
+}
+
+async function warmUpcomingPagesFromCurrent() {
+  if (!state.currentBook?.id || !state.selectedVoice?.id || !state.currentPage?.audioUrl) {
+    return;
+  }
+
+  const warmKey = `${state.currentBook.id}:${state.currentPageIndex}:${state.selectedVoice.id}`;
+  if (state.lastWarmWindowKey === warmKey) {
+    return;
+  }
+  state.lastWarmWindowKey = warmKey;
+
+  await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}/prepare`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      voiceSampleId: state.selectedVoice.id,
+    }),
+  }).catch(() => {});
+}
+
+async function handlePlayToggle() {
+  if (!els.bookAudio.src) {
+    updateGenerationUi({
+      label: `Page ${state.currentPageIndex + 1} is not ready yet.`,
+      progress: 0,
+      logs: ["Press Generate audiobook first so Voxenor can translate and render this page."],
+    });
+    return;
+  }
+
+  await els.bookAudio.play().catch(() => {});
+}
+
+async function handleRestartCurrentPage() {
+  if (!els.bookAudio.src) {
+    return;
+  }
+  els.bookAudio.currentTime = 0;
+  state.lastHighlightedGlobalIndex = -1;
+  syncPlaybackHighlight();
+  await els.bookAudio.play().catch(() => {});
+}
+
+async function handleAudioEnded() {
+  stopPlaybackTracking();
+  if (!state.currentBook?.pages?.length) {
+    return;
+  }
+
+  const nextPageIndex = state.currentPageIndex + 1;
+  if (nextPageIndex >= state.currentBook.pages.length) {
+    return;
+  }
+
+  await openBookPage(nextPageIndex, { turnDirection: "forward" });
+  if (els.bookAudio.src) {
+    await els.bookAudio.play().catch(() => {});
+    return;
+  }
+  await handlePrepareCurrentPage({ autoplay: true });
+}
+
+function setTransportAvailability(isReady) {
+  els.playToggle.disabled = !isReady;
+  els.pauseToggle.disabled = !isReady;
+  els.restartToggle.disabled = !isReady;
 }
 
 function startPlaybackTracking() {
@@ -1714,62 +1192,14 @@ function stopPlaybackTracking() {
 }
 
 function syncPlaybackHighlight() {
-  if (state.alignmentWordTimings.length) {
-    syncPlaybackHighlightFromAlignment();
-    return;
-  }
-
-  if (!state.totalWordCount || !els.bookAudio.duration) {
-    return;
-  }
-
-  const progress = els.bookAudio.currentTime / els.bookAudio.duration;
-  const globalIndex = Math.min(
-    state.totalWordCount - 1,
-    Math.max(0, Math.floor(progress * state.totalWordCount))
-  );
-
-  if (globalIndex === state.lastHighlightedGlobalIndex) {
-    return;
-  }
-
-  state.lastHighlightedGlobalIndex = globalIndex;
-  const chapterIndex = resolveChapterIndexForWord(globalIndex);
-
-  if (chapterIndex !== state.currentChapterIndex) {
-    state.currentChapterIndex = chapterIndex;
-    setActiveChapterButton(chapterIndex);
-    renderCurrentChapter();
-  }
-
-  state.currentChapterTokens.forEach((token) => token.classList.remove("active"));
-
-  const localIndex = globalIndex - (state.chapterWordOffsets[state.currentChapterIndex] || 0);
-  const activeToken = state.currentChapterTokens[localIndex];
-  if (activeToken) {
-    activeToken.classList.add("active");
-    activeToken.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-      behavior: "smooth",
-    });
-  }
-}
-
-function syncPlaybackHighlightFromAlignment() {
-  if (!state.totalWordCount || !els.bookAudio.duration || !state.alignmentWordTimings.length) {
+  if (!state.alignmentWordTimings.length || !state.totalWordCount || !els.bookAudio.duration) {
     return;
   }
 
   const wordTiming = findAlignmentWordTiming(els.bookAudio.currentTime);
-  if (!wordTiming) {
+  if (!wordTiming || wordTiming.index === state.lastHighlightedGlobalIndex) {
     return;
   }
-
-  if (wordTiming.index === state.lastHighlightedGlobalIndex) {
-    return;
-  }
-
   activateWordByGlobalIndex(wordTiming.index);
 }
 
@@ -1788,22 +1218,13 @@ function findAlignmentWordTiming(currentTime) {
 
 function activateWordByGlobalIndex(globalIndex) {
   state.lastHighlightedGlobalIndex = globalIndex;
-  const chapterIndex = resolveChapterIndexForWord(globalIndex);
-
-  if (chapterIndex !== state.currentChapterIndex && state.followPlayback) {
-    state.currentChapterIndex = chapterIndex;
-    setActiveChapterButton(chapterIndex);
-    renderCurrentChapter();
+  state.currentTokens.forEach((token) => token.classList.remove("active"));
+  const activeToken = state.currentTokens[globalIndex];
+  if (!activeToken) {
+    return;
   }
-
-  state.currentChapterTokens.forEach((token) => token.classList.remove("active"));
-
-  const localIndex = globalIndex - (state.chapterWordOffsets[state.currentChapterIndex] || 0);
-  const activeToken = state.currentChapterTokens[localIndex];
-  if (activeToken) {
-    activeToken.classList.add("active");
-    revealTokenIfNeeded(activeToken);
-  }
+  activeToken.classList.add("active");
+  revealTokenIfNeeded(activeToken);
 }
 
 function buildAlignmentWordTimings(segments) {
@@ -1835,10 +1256,6 @@ function buildAlignmentWordTimings(segments) {
   return timings;
 }
 
-function tokenizeWords(text) {
-  return text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || [];
-}
-
 function revealTokenIfNeeded(token) {
   if (!state.followPlayback) {
     return;
@@ -1849,14 +1266,11 @@ function revealTokenIfNeeded(token) {
   const topPadding = 96;
   const bottomPadding = 120;
 
-  if (
-    tokenRect.top >= containerRect.top + topPadding &&
-    tokenRect.bottom <= containerRect.bottom - bottomPadding
-  ) {
+  if (tokenRect.top >= containerRect.top + topPadding && tokenRect.bottom <= containerRect.bottom - bottomPadding) {
     return;
   }
 
-  const offsetTop = token.offsetTop - els.readerContent.clientHeight * 0.28;
+  const offsetTop = token.offsetTop - els.readerContent.clientHeight * 0.25;
   state.readerScrollLockedUntil = Date.now() + 500;
   els.readerContent.scrollTo({
     top: Math.max(0, offsetTop),
@@ -1871,96 +1285,301 @@ function handleReaderManualScroll() {
   state.followPlayback = false;
 }
 
+function animatePageTurn(direction) {
+  els.readerPage.classList.remove("turn-forward", "turn-backward");
+  window.clearTimeout(state.readerTurnTimer);
+  if (!direction) {
+    return;
+  }
+  const className = direction === "backward" ? "turn-backward" : "turn-forward";
+  requestAnimationFrame(() => {
+    els.readerPage.classList.add(className);
+    state.readerTurnTimer = window.setTimeout(() => {
+      els.readerPage.classList.remove(className);
+    }, 760);
+  });
+}
+
+function scheduleProgressSave() {
+  clearTimeout(state.progressSaveTimer);
+  state.progressSaveTimer = window.setTimeout(() => {
+    void saveProgress();
+  }, 800);
+}
+
+async function saveProgress() {
+  if (!state.currentBook) {
+    return;
+  }
+  await fetchJson(`/api/books/${state.currentBook.id}/progress`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      pageIndex: state.currentPageIndex,
+      audioTime: els.bookAudio.currentTime || 0,
+    }),
+  }).catch(() => {});
+}
+
+function scheduleSelectionTranslate() {
+  clearTimeout(state.selectionTranslateTimer);
+  state.selectionTranslateTimer = window.setTimeout(async () => {
+    const text = getActiveReaderSelectionText();
+    if (!text || text === state.lastSelectionText) {
+      return;
+    }
+    state.lastSelectionText = text;
+    await handleSelectionLookup(text);
+  }, 140);
+}
+
+function getActiveReaderSelectionText() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) {
+    state.lastSelectionText = "";
+    return "";
+  }
+
+  const text = selection.toString().trim();
+  if (!text || text.length < 2 || text.length > 220) {
+    return "";
+  }
+
+  const anchorInReader = els.readerContent.contains(selection.anchorNode);
+  const focusInReader = els.readerContent.contains(selection.focusNode);
+  if (!anchorInReader && !focusInReader) {
+    return "";
+  }
+
+  return text;
+}
+
+async function handleWordLookup(word) {
+  state.activeLookupSourceNormalized = normalizeComparableText(word);
+  applyLookupHighlight();
+  try {
+    setLookupPending(word);
+    const payload = await translate(word);
+    setLookupValue({
+      source: word,
+      translatedText: payload.translatedText,
+      context: buildContextSnippet(word),
+      sourceLanguage: state.readerLanguage,
+      targetLanguage: els.listenerLanguage.value,
+    });
+  } catch (error) {
+    setLookupError(error.message, word);
+  }
+}
+
+async function handleSelectionLookup(text) {
+  state.activeLookupSourceNormalized = "";
+  applyLookupHighlight();
+  try {
+    setLookupPending(text);
+    const payload = await translate(text);
+    setLookupValue({
+      source: text,
+      translatedText: payload.translatedText,
+      context: buildContextSnippet(text),
+      sourceLanguage: state.readerLanguage,
+      targetLanguage: els.listenerLanguage.value,
+    });
+  } catch (error) {
+    setLookupError(error.message, text);
+  }
+}
+
+function setLookupPending(source) {
+  state.lookup = {
+    source,
+    translatedText: `Translating "${truncate(source, 72)}"...`,
+    context: "",
+    isError: false,
+    pending: true,
+  };
+  renderLookupPanel();
+}
+
+function setLookupValue(lookup) {
+  state.lookup = {
+    ...lookup,
+    isError: false,
+    pending: false,
+  };
+  renderLookupPanel();
+}
+
+function setLookupError(message, source = "") {
+  state.lookup = {
+    source,
+    translatedText: message,
+    context: "",
+    isError: true,
+    pending: false,
+  };
+  renderLookupPanel();
+}
+
+function renderLookupPanel() {
+  const lookup = state.lookup;
+  if (!lookup) {
+    els.selectionTranslation.classList.add("empty-state");
+    els.selectionTranslation.textContent = "Click a word or select a phrase in the page to translate it here.";
+    els.saveWordButton.classList.add("hidden");
+    return;
+  }
+
+  els.selectionTranslation.classList.remove("empty-state");
+  els.selectionTranslation.innerHTML = `
+    <div class="lookup-source">${escapeHtml(lookup.source || "Current lookup")}</div>
+    <div class="lookup-result">${escapeHtml(lookup.translatedText || "")}</div>
+    ${
+      lookup.context
+        ? `<div class="lookup-meta">${escapeHtml(lookup.context)}</div>`
+        : `<div class="lookup-meta">${escapeHtml(
+            `${getLanguageLabel(lookup.sourceLanguage || state.readerLanguage)} -> ${getLanguageLabel(
+              lookup.targetLanguage || els.listenerLanguage.value
+            )}`
+          )}</div>`
+    }
+  `;
+  els.saveWordButton.classList.toggle("hidden", lookup.isError || lookup.pending || !lookup.source || !lookup.translatedText);
+  els.saveWordButton.textContent = /\s/u.test(lookup.source || "") ? "Save phrase" : "Save word";
+}
+
+function buildContextSnippet(source) {
+  const baseText = state.currentPage?.displayText || state.currentPage?.sourceText || "";
+  if (!baseText || !source) {
+    return "";
+  }
+
+  const lowerBase = baseText.toLowerCase();
+  const lowerSource = source.toLowerCase();
+  const index = lowerBase.indexOf(lowerSource);
+  if (index < 0) {
+    return truncate(baseText, 160);
+  }
+
+  const start = Math.max(0, index - 60);
+  const end = Math.min(baseText.length, index + source.length + 60);
+  const snippet = baseText.slice(start, end).replace(/\s+/g, " ").trim();
+  return `${start > 0 ? "..." : ""}${snippet}${end < baseText.length ? "..." : ""}`;
+}
+
+async function saveCurrentLookup() {
+  if (!state.lookup || state.lookup.isError || state.lookup.pending || !state.lookup.source || !state.lookup.translatedText) {
+    return;
+  }
+
+  try {
+    const payload = await fetchJson("/api/saved-words", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        source: state.lookup.source,
+        translatedText: state.lookup.translatedText,
+        sourceLanguage: state.lookup.sourceLanguage || state.readerLanguage,
+        targetLanguage: state.lookup.targetLanguage || els.listenerLanguage.value,
+        bookId: state.currentBook?.id || "",
+        bookTitle: state.currentBook?.title || "",
+        pageIndex: state.currentPageIndex,
+        context: state.lookup.context || "",
+      }),
+    });
+    state.savedWords = payload.savedWords || state.savedWords;
+    renderSavedWords();
+    applyLookupHighlight();
+  } catch (error) {
+    setLookupError(error.message, state.lookup.source);
+  }
+}
+
+function renderSavedWords() {
+  els.savedWordsCount.textContent = `${state.savedWords.length} item${state.savedWords.length === 1 ? "" : "s"}`;
+  els.savedWordsList.innerHTML = "";
+
+  if (!state.savedWords.length) {
+    els.savedWordsList.classList.add("empty-state");
+    els.savedWordsList.textContent = "Save useful words and short phrases while you read.";
+    return;
+  }
+
+  els.savedWordsList.classList.remove("empty-state");
+
+  state.savedWords.forEach((entry) => {
+    const item = document.createElement("article");
+    item.className = "saved-word-item";
+    item.innerHTML = `
+      <div class="saved-word-head">
+        <div>
+          <strong>${escapeHtml(entry.source)}</strong>
+          <div class="lookup-meta">${escapeHtml(getLanguageLabel(entry.sourceLanguage))} -> ${escapeHtml(
+            getLanguageLabel(entry.targetLanguage)
+          )}</div>
+        </div>
+        <button class="saved-word-delete" type="button" data-saved-word-id="${escapeHtml(entry.id)}">Remove</button>
+      </div>
+      <div class="saved-word-translation">${escapeHtml(entry.translatedText)}</div>
+      ${
+        entry.context
+          ? `<div class="saved-word-context">${escapeHtml(entry.context)}</div>`
+          : ""
+      }
+    `;
+    item.querySelector(".saved-word-delete").addEventListener("click", () => void handleDeleteSavedWord(entry.id));
+    item.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLElement && event.target.closest(".saved-word-delete")) {
+        return;
+      }
+      state.lookup = {
+        source: entry.source,
+        translatedText: entry.translatedText,
+        context: entry.context || "",
+        sourceLanguage: entry.sourceLanguage,
+        targetLanguage: entry.targetLanguage,
+        isError: false,
+        pending: false,
+      };
+      state.activeLookupSourceNormalized = /\s/u.test(entry.source) ? "" : normalizeComparableText(entry.source);
+      renderLookupPanel();
+      applyLookupHighlight();
+    });
+    els.savedWordsList.append(item);
+  });
+}
+
+async function handleDeleteSavedWord(savedWordId) {
+  try {
+    const payload = await fetchJson(`/api/saved-words/${encodeURIComponent(savedWordId)}`, {
+      method: "DELETE",
+    });
+    state.savedWords = payload.savedWords || [];
+    renderSavedWords();
+    applyLookupHighlight();
+  } catch (error) {
+    setLookupError(error.message);
+  }
+}
+
 function updateLanguagePills() {
   const chosenBookLanguage =
     els.bookLanguage.value === "auto"
       ? `${getLanguageLabel(state.detectedBookLanguage)} detected`
       : getLanguageLabel(els.bookLanguage.value);
-  const audiobookLabel = getLanguageLabel(els.audiobookLanguage.value);
-  const listenerLabel = getLanguageLabel(els.listenerLanguage.value);
 
   els.activeLanguagePill.textContent = `Book: ${chosenBookLanguage}`;
-  els.translationLanguagePill.textContent = `Audio: ${audiobookLabel}`;
-  els.listenerLanguagePill.textContent = `You: ${listenerLabel}`;
-  updateVoicePromptHint();
+  els.translationLanguagePill.textContent = `Audio: ${getLanguageLabel(els.audiobookLanguage.value)}`;
+  els.listenerLanguagePill.textContent = `You: ${getLanguageLabel(els.listenerLanguage.value)}`;
+  updateVoicePill();
 }
 
 function updateVoicePill() {
   els.voicePill.textContent = `Voice: ${state.selectedVoice?.name || "default"}`;
-}
-
-function getVoiceLabelValue() {
-  return els.voiceLabel.value.trim() || "My Voice";
-}
-
-function refreshVoicePreview() {
-  if (!state.modelInfo?.supportsCustomVoiceCloning) {
-    els.voicePreview.pause();
-    els.voicePreview.removeAttribute("src");
-    els.voicePreview.hidden = true;
-    return;
-  }
-
-  const previewSample = state.selectedVoice && !state.selectedVoice.builtIn ? state.selectedVoice : null;
-  if (!previewSample?.url) {
-    els.voicePreview.pause();
-    els.voicePreview.removeAttribute("src");
-    els.voicePreview.hidden = true;
-    return;
-  }
-
-  els.voicePreview.hidden = false;
-  if (els.voicePreview.src !== new URL(previewSample.url, window.location.origin).href) {
-    els.voicePreview.src = previewSample.url;
-  }
-}
-
-function updateVoicePromptHint() {
-  if (els.voiceScriptText) {
-    els.voiceScriptText.textContent =
-      "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
-  }
-}
-
-function getLanguageLabel(code) {
-  return languageLabels.get(code) || String(code || "").toUpperCase();
-}
-
-function computeChapterWordMetrics() {
-  state.chapterWordCounts = state.chapters.map((chapter) => countWords(chapter.content || ""));
-  state.chapterWordOffsets = [];
-  let offset = 0;
-  for (const wordCount of state.chapterWordCounts) {
-    state.chapterWordOffsets.push(offset);
-    offset += wordCount;
-  }
-  state.totalWordCount = offset;
-}
-
-function countWords(text) {
-  return tokenizeWords(text).length;
-}
-
-function resolveChapterIndexForWord(globalWordIndex) {
-  if (!state.chapterWordOffsets.length) {
-    return 0;
-  }
-
-  for (let index = 0; index < state.chapterWordOffsets.length; index += 1) {
-    const start = state.chapterWordOffsets[index];
-    const nextStart = state.chapterWordOffsets[index + 1] ?? state.totalWordCount;
-    if (globalWordIndex >= start && globalWordIndex < nextStart) {
-      return index;
-    }
-  }
-
-  return state.chapterWordOffsets.length - 1;
-}
-
-function setActiveChapterButton(activeIndex) {
-  document.querySelectorAll(".chapter-button").forEach((node) => {
-    node.classList.toggle("active", Number(node.dataset.pageIndex) === activeIndex);
-  });
 }
 
 async function translate(text) {
@@ -1977,18 +1596,35 @@ async function translate(text) {
   });
 }
 
-async function fetchJson(url, options) {
-  let response;
-  try {
-    response = await fetch(url, options);
-  } catch {
-    throw new Error("Could not reach the Voxenor server. Refresh and try again.");
+function renderCoverMarkup(coverUrl, title) {
+  if (coverUrl) {
+    return `<img src="${escapeHtml(coverUrl)}" alt="${escapeHtml(title || "Book")} cover" />`;
   }
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `Request failed with status ${response.status}.`);
-  }
-  return payload;
+
+  const initials = String(title || "VX")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || "")
+    .join("")
+    .toUpperCase();
+  return `<span>${escapeHtml(initials || "VX")}</span>`;
+}
+
+function getLanguageLabel(code) {
+  return languageLabels.get(code) || String(code || "").toUpperCase();
+}
+
+function tokenizeWords(text) {
+  return text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || [];
+}
+
+function normalizeComparableText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
 }
 
 function normalizeLanguageCode(language) {
@@ -2010,14 +1646,28 @@ function normalizeLanguageCode(language) {
 }
 
 function truncate(value, maxLength) {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 }
 
 function escapeHtml(value) {
-  return value
+  return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+async function fetchJson(url, options) {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch {
+    throw new Error("Could not reach the Voxenor server. Refresh and try again.");
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Request failed with status ${response.status}.`);
+  }
+  return payload;
 }

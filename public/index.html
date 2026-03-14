@@ -10,9 +10,9 @@
     <div id="auth-shell" class="auth-shell hidden">
       <div class="auth-card">
         <p class="eyebrow">Private library</p>
-        <h2>Unlock Voxenor</h2>
+        <h2>Enter Voxenor</h2>
         <p class="lede">
-          Your saved books, progress, and page-by-page audio stay behind one lightweight local sign-in for now.
+          One simple sign-in for your saved books, page audio, vocabulary, and reading progress.
         </p>
         <label class="field">
           <span>Email</span>
@@ -22,266 +22,310 @@
           <span>Password</span>
           <input id="auth-password" type="password" autocomplete="current-password" placeholder="Password" />
         </label>
-        <button id="auth-submit" class="primary-button" type="button">Enter Voxenor</button>
+        <button id="auth-submit" class="primary-button" type="button">Open library</button>
         <p id="auth-status" class="status-text">Sign in once and your session stays cached on this device.</p>
       </div>
     </div>
 
-    <div class="page-shell">
+    <div class="app-shell">
       <div class="ambient ambient-one"></div>
       <div class="ambient ambient-two"></div>
 
-      <header class="topbar">
+      <header class="app-topbar">
         <div class="brand-lockup">
           <div class="brand-mark">VX</div>
           <div>
-            <p class="eyebrow">Local audiobook studio</p>
+            <p class="eyebrow">Private audio reading room</p>
             <h1>Voxenor</h1>
           </div>
         </div>
-        <div class="topbar-meta">
-          <span class="meta-pill">PT-PT fully supported</span>
-          <span class="meta-pill">Saved local library</span>
-          <span class="meta-pill">OCR-ready intake</span>
-          <span class="meta-pill">Inline translation</span>
-          <button id="logout-button" class="ghost-button topbar-action" type="button">Log out</button>
+
+        <div class="topbar-actions">
+          <span class="topbar-note">Fast PT-PT reading on a simple VPS.</span>
+          <button id="home-button" class="ghost-button hidden" type="button">Library</button>
+          <button id="logout-button" class="ghost-button" type="button">Log out</button>
         </div>
       </header>
 
-      <main class="layout">
-        <section class="panel hero-panel">
-          <div class="hero-copy">
-            <p class="eyebrow">Modern reading, local generation</p>
-            <h2>Turn text, scans, and book photos into a saved spoken library with fast PT-PT narration.</h2>
-            <p class="lede">
-              Import a book once, keep the original, save the PT-PT reading version, and keep upcoming pages warming in the background so the reading flow stays light, resumable, and local.
-            </p>
-          </div>
+      <main class="app-main">
+        <section id="library-view" class="screen">
+          <section class="card hero-card">
+            <div class="hero-copy">
+              <p class="eyebrow">Library first</p>
+              <h2>Build a beautiful private shelf of books, then open each one in a proper reading room.</h2>
+              <p class="lede">
+                Save the source file, keep the translated text, generate page audio only when you need it, and keep your
+                useful vocabulary beside the book instead of buried in another app.
+              </p>
+            </div>
 
-          <div class="composer-grid">
-            <section class="card composer-card">
+            <div class="hero-palette">
+              <span class="palette-swatch calm">Calm</span>
+              <span class="palette-swatch sand">Sand</span>
+              <span class="palette-swatch mink">Mink</span>
+              <span class="palette-swatch forest">Forest</span>
+              <span class="palette-swatch merlot">Merlot</span>
+              <span class="palette-swatch noir">Noir</span>
+            </div>
+          </section>
+
+          <div class="library-layout">
+            <section class="library-main">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Book input</p>
-                  <h3>Import a book into your library</h3>
+                  <p class="eyebrow">Your shelf</p>
+                  <h3>Saved books</h3>
                 </div>
-                <span class="soft-pill">PDF / EPUB / TXT / image OCR</span>
+                <span id="library-count" class="meta-pill">0 books</span>
               </div>
 
-              <form id="book-form" class="stack">
-                <label class="field">
-                  <span>Book title</span>
-                  <input id="book-title" name="title" type="text" placeholder="Harry Potter e a Pedra Filosofal" />
-                </label>
-
-                <label class="field">
-                  <span>Drop your story</span>
-                  <textarea
-                    id="book-text"
-                    name="text"
-                    rows="10"
-                    placeholder="Paste your story here if you do not want to upload a PDF or EPUB."
-                  ></textarea>
-                </label>
-
-                <label class="upload-zone" for="book-file">
-                  <input id="book-file" name="bookFile" type="file" accept=".pdf,.epub,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,image/*" />
-                  <span class="upload-title">Upload a book file or page photo</span>
-                  <span class="upload-subtitle">We extract text locally, including OCR for scanned pages and book photos.</span>
-                </label>
-
-                <div class="triple-fields">
-                  <label class="field">
-                    <span>Book language</span>
-                    <select id="book-language"></select>
-                  </label>
-                  <label class="field">
-                    <span>You speak</span>
-                    <select id="listener-language"></select>
-                  </label>
-                  <label class="field">
-                    <span>Audiobook voice</span>
-                    <select id="audiobook-language"></select>
-                  </label>
-                </div>
-
-                <button id="book-submit" class="primary-button" type="submit">Save to library</button>
-                <p id="book-status" class="status-text">Import once, then Voxenor keeps the book in your local library.</p>
-              </form>
+              <div id="book-library" class="book-grid empty-state">
+                Import a PDF, EPUB, TXT, or page photo to begin your library.
+              </div>
             </section>
 
-            <section class="card control-card">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Narration voice</p>
-                  <h3>Choose the fast Piper reading voice</h3>
-                </div>
-              </div>
-
-              <div class="voice-shelf" id="voice-shelf"></div>
-
-              <div class="catalog-card">
-                <div class="catalog-heading">
+            <aside class="library-sidebar">
+              <section class="card import-card">
+                <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Official Piper catalog</p>
-                    <h3>Available voices and languages</h3>
+                    <p class="eyebrow">Add a new book</p>
+                    <h3>Import into your shelf</h3>
                   </div>
-                  <span id="piper-catalog-status" class="soft-pill">Loading voices...</span>
+                  <span class="soft-pill">PDF / EPUB / OCR</span>
                 </div>
-                <div id="piper-catalog" class="piper-catalog empty-state">
-                  Loading the official Piper voices list...
-                </div>
-              </div>
 
-              <div class="support-card">
-                <p class="eyebrow">Fully supported today</p>
-                <div id="supported-language-list" class="support-list"></div>
-              </div>
+                <form id="book-form" class="stack">
+                  <label class="field">
+                    <span>Book title</span>
+                    <input id="book-title" name="title" type="text" placeholder="Harry Potter e a Pedra Filosofal" />
+                  </label>
 
-              <div class="profile-card">
-                <div>
-                  <p class="eyebrow">Reader profile</p>
-                  <h3 id="profile-name">Your reader profile</h3>
+                  <label class="field">
+                    <span>Paste text instead</span>
+                    <textarea
+                      id="book-text"
+                      name="text"
+                      rows="7"
+                      placeholder="Paste text here if you do not want to upload a file."
+                    ></textarea>
+                  </label>
+
+                  <label class="upload-zone" for="book-file">
+                    <input
+                      id="book-file"
+                      name="bookFile"
+                      type="file"
+                      accept=".pdf,.epub,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,image/*"
+                    />
+                    <span class="upload-title">Upload a book file or real page photo</span>
+                    <span class="upload-subtitle">Voxenor extracts text locally, including OCR for scans and photos.</span>
+                  </label>
+
+                  <div class="stack compact-gap">
+                    <label class="field">
+                      <span>Book language</span>
+                      <select id="book-language"></select>
+                    </label>
+                    <label class="field">
+                      <span>You speak</span>
+                      <select id="listener-language"></select>
+                    </label>
+                    <label class="field">
+                      <span>Audiobook language</span>
+                      <select id="audiobook-language"></select>
+                    </label>
+                  </div>
+
+                  <button id="book-submit" class="primary-button" type="submit">Save to library</button>
+                  <p id="book-status" class="status-text">Import once, then open the book from your shelf when you want to read.</p>
+                </form>
+              </section>
+
+              <section class="card settings-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Reading voice</p>
+                    <h3>Fast VPS mode</h3>
+                  </div>
+                  <span id="voice-pill" class="meta-pill">Voice: default</span>
                 </div>
-                <p id="profile-details" class="recording-note">
-                  Preferences, native languages, and your learning language appear here once you sign in.
-                </p>
+
+                <div id="voice-shelf" class="voice-shelf"></div>
+
+                <details class="catalog-panel">
+                  <summary>
+                    <span>Available Piper voices and languages</span>
+                    <span id="piper-catalog-status">Loading...</span>
+                  </summary>
+                  <div id="piper-catalog" class="piper-catalog empty-state">Loading the official Piper voice catalog...</div>
+                </details>
+
+                <div class="support-card">
+                  <p class="eyebrow">Fully supported now</p>
+                  <div id="supported-language-list" class="support-list"></div>
+                </div>
+              </section>
+
+              <section class="card profile-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Reader profile</p>
+                    <h3 id="profile-name">Your profile</h3>
+                  </div>
+                </div>
+                <p id="profile-details" class="lede compact">Native languages, learning language, and local access URLs appear here.</p>
                 <div id="network-list" class="network-list"></div>
-              </div>
+              </section>
 
-              <div id="recording-card" class="recording-card hidden">
-                <div>
-                  <p class="eyebrow">Direct voice capture</p>
-                  <h3>Record your voice for page-by-page narration</h3>
-                </div>
-                <p class="recording-note">
-                  A clear 10-20 second recording works best for cloning. Quiet room, one speaker, and read the suggested line for the strongest accent match.
-                </p>
-                <label class="field">
-                  <span>Voice label</span>
-                  <input
-                    id="voice-label"
-                    type="text"
-                    maxlength="60"
-                    placeholder="Andre narrator"
-                    autocomplete="off"
-                  />
-                </label>
-                <div class="voice-script">
-                  <p class="eyebrow">Suggested recording line</p>
-                  <p id="voice-script-text" class="voice-script-text"></p>
-                </div>
-                <div class="recording-actions">
-                  <button id="record-toggle" class="secondary-button" type="button">Record voice</button>
-                  <button id="upload-voice-button" class="ghost-button" type="button">Upload sample</button>
+              <section id="legacy-voice-tools" class="hidden" aria-hidden="true">
+                <div id="recording-card">
+                  <input id="voice-label" type="text" />
+                  <button id="record-toggle" type="button">Record voice</button>
+                  <button id="upload-voice-button" type="button">Upload sample</button>
                   <input id="voice-file" type="file" accept="audio/*" hidden />
+                  <audio id="voice-preview" controls hidden></audio>
+                  <p id="voice-script-text"></p>
+                  <p id="recording-status"></p>
                 </div>
-                <p id="recording-status" class="status-text">No custom voice uploaded yet.</p>
-                <audio id="voice-preview" controls hidden></audio>
-              </div>
-
-              <button id="generate-button" class="primary-button glow-button" type="button">Generate audiobook</button>
-
-              <div id="generation-status" class="generation-status hidden">
-                <div class="status-row">
-                  <span id="generation-label">Preparing...</span>
-                  <span id="generation-percent">0%</span>
-                </div>
-                <div class="progress-track">
-                  <div id="generation-progress" class="progress-fill"></div>
-                </div>
-                <div id="generation-log" class="log-surface"></div>
-              </div>
-            </section>
+              </section>
+            </aside>
           </div>
         </section>
 
-        <section class="reader-shell">
-          <aside class="panel library-panel">
-            <div class="library-stack">
-              <section class="library-shelf-card">
-                <div class="section-heading">
-                  <div>
-                    <p class="eyebrow">Saved library</p>
-                    <h3>Your books</h3>
+        <section id="reader-view" class="screen hidden">
+          <div class="reader-layout">
+            <aside class="reader-side left">
+              <section class="card book-summary-card">
+                <button id="back-to-library" class="ghost-button back-button" type="button">Back to library</button>
+
+                <div class="current-book-head">
+                  <div id="reader-book-cover" class="current-book-cover">VX</div>
+                  <div class="current-book-copy">
+                    <p class="eyebrow">Current book</p>
+                    <h3 id="reader-book-title">Select a book</h3>
+                    <p id="reader-book-meta" class="compact-copy">Open a book from your shelf to begin.</p>
                   </div>
-                  <span class="soft-pill" id="library-count">0 books</span>
                 </div>
-                <div id="book-library" class="book-library empty-state">
-                  Save a PDF, EPUB, or text file to start your library.
+
+                <div class="progress-block">
+                  <div class="progress-label-row">
+                    <span id="reader-progress-label">0%</span>
+                    <span id="reader-page-label">Page 0 of 0</span>
+                  </div>
+                  <div class="progress-track">
+                    <div id="reader-progress-fill" class="progress-fill"></div>
+                  </div>
                 </div>
+
+                <form id="go-to-page-form" class="goto-form">
+                  <label class="field">
+                    <span>Go to page</span>
+                    <input id="go-to-page-input" type="number" min="1" step="1" placeholder="12" />
+                  </label>
+                  <button class="secondary-button" type="submit">Open page</button>
+                </form>
+
+                <div class="meta-grid">
+                  <span id="active-language-pill" class="meta-pill">Book: auto</span>
+                  <span id="translation-language-pill" class="meta-pill">Audio: PT-PT</span>
+                  <span id="listener-language-pill" class="meta-pill">You: EN</span>
+                </div>
+
+                <button id="reader-delete-book" class="ghost-button danger-button" type="button">Delete this book</button>
               </section>
 
-              <section class="library-shelf-card">
+              <section class="card generation-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Reading flow</p>
-                    <h3>Page queue</h3>
+                    <p class="eyebrow">Page audio</p>
+                    <h3>Generation status</h3>
                   </div>
-                  <div class="page-queue-meta">
-                    <span class="soft-pill" id="page-window-label">Current page</span>
-                    <span class="soft-pill" id="chapter-count">0 pages</span>
+                  <span id="reader-status-pill" class="soft-pill">Idle</span>
+                </div>
+
+                <button id="generate-button" class="primary-button" type="button">Generate audiobook</button>
+
+                <div id="generation-status" class="generation-status">
+                  <div class="status-row">
+                    <span id="generation-label">Open a page to begin.</span>
+                    <span id="generation-percent">0%</span>
                   </div>
-                </div>
-                <div class="page-nav-row">
-                  <button id="page-prev" class="ghost-button" type="button">Previous</button>
-                  <button id="page-next" class="ghost-button" type="button">Next</button>
-                </div>
-                <div id="chapter-list" class="chapter-list empty-state">
-                  Open a saved book to see its pages.
+                  <div class="progress-track">
+                    <div id="generation-progress" class="progress-fill"></div>
+                  </div>
+                  <div id="generation-log" class="log-surface"></div>
                 </div>
               </section>
-            </div>
-          </aside>
+            </aside>
 
-          <section class="panel reader-panel">
-            <div class="reader-toolbar">
-              <div>
-                <p class="eyebrow">Reading room</p>
-                <h2 id="reader-title">Your saved reading session will appear here</h2>
-              </div>
-
-              <div class="player-cluster">
-                <button id="seek-backward" class="ghost-button transport-button" type="button" disabled>-10s</button>
-                <button id="restart-toggle" class="ghost-button transport-button" type="button" disabled>Restart page</button>
-                <button id="play-toggle" class="play-button" type="button" disabled>Play!</button>
+            <section class="reader-stage-shell">
+              <div class="reader-controls">
+                <button id="play-toggle" class="play-button" type="button" disabled>Play</button>
                 <button id="pause-toggle" class="ghost-button" type="button" disabled>Pause</button>
-                <button id="stop-toggle" class="ghost-button transport-button" type="button" disabled>Stop</button>
-                <button id="seek-forward" class="ghost-button transport-button" type="button" disabled>+10s</button>
+                <button id="restart-toggle" class="ghost-button" type="button" disabled>Restart page</button>
               </div>
-            </div>
 
-            <div class="reader-meta-row">
-              <span class="meta-pill" id="active-language-pill">Book: auto</span>
-              <span class="meta-pill" id="translation-language-pill">Audio: PT-PT</span>
-              <span class="meta-pill" id="listener-language-pill">You: EN</span>
-              <span class="meta-pill" id="voice-pill">Voice: default</span>
-            </div>
+              <div class="reader-stage">
+                <button id="page-prev" class="page-turn-button page-turn-left" type="button" disabled aria-label="Previous page">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M15 5L8 12L15 19" />
+                  </svg>
+                </button>
 
-            <div id="selection-translation" class="translation-bar hidden"></div>
-
-            <div class="reader-stage">
-              <div id="reader-page" class="reader-page">
-                <div id="reader-content" class="reader-content empty-state">
-                  Paste a book or upload a file to enter the reader.
+                <div id="reader-page" class="reader-page">
+                  <div class="book-gutter"></div>
+                  <div class="page-grain"></div>
+                  <div id="reader-content" class="reader-content empty-state">
+                    Open a book from your shelf to enter the reader.
+                  </div>
+                  <div class="page-footer">
+                    <span id="page-footer-number">Page 0</span>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <audio id="book-audio" preload="metadata"></audio>
-          </section>
+                <button id="page-next" class="page-turn-button page-turn-right" type="button" disabled aria-label="Next page">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 5L16 12L9 19" />
+                  </svg>
+                </button>
+              </div>
+
+              <audio id="book-audio" preload="metadata"></audio>
+            </section>
+
+            <aside class="reader-side right">
+              <section class="card lookup-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Live translation</p>
+                    <h3>Current lookup</h3>
+                  </div>
+                </div>
+
+                <div id="selection-translation" class="lookup-output empty-state">
+                  Click a word or select a phrase in the page to translate it here.
+                </div>
+                <button id="save-word-button" class="secondary-button hidden" type="button">Save to my words</button>
+              </section>
+
+              <section class="card saved-words-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">My saved words</p>
+                    <h3>Vocabulary shelf</h3>
+                  </div>
+                  <span id="saved-words-count" class="meta-pill">0 items</span>
+                </div>
+
+                <div id="saved-words-list" class="saved-words-list empty-state">
+                  Save useful words and short phrases while you read.
+                </div>
+              </section>
+            </aside>
+          </div>
         </section>
       </main>
     </div>
-
-    <div id="word-popover" class="word-popover hidden"></div>
-
-    <template id="chapter-button-template">
-      <button class="chapter-button" type="button">
-        <span class="chapter-index"></span>
-        <span class="chapter-title"></span>
-      </button>
-    </template>
 
     <script src="/app.js" type="module"></script>
   </body>
