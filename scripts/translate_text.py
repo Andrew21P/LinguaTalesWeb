@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 
@@ -11,7 +13,11 @@ def normalize_language_code(value: str | None) -> str:
     code = (value or "").strip().lower().replace("_", "-")
     if code in {"", "auto"}:
         return "auto"
-    if code.startswith("pt"):
+    if code == "pt-pt":
+        return "pt-PT"
+    if code == "pt-br":
+        return "pt-BR"
+    if code == "pt":
         return "pt"
     if code.startswith("zh"):
         return "zh-CN"
@@ -35,19 +41,31 @@ def main() -> None:
         print(json.dumps({"provider": "identity", "translatedText": text}, ensure_ascii=False))
         return
 
-    try:
-        from deep_translator import GoogleTranslator
-    except ImportError as exc:
-        raise SystemExit(
-            "Google web translation requires deep-translator. Install Python dependencies from scripts/requirements.txt."
-        ) from exc
-
-    translator = GoogleTranslator(
-        source="auto" if source_language == "auto" else source_language,
-        target=target_language,
+    translated_text = translate_with_google_web(
+        text=text,
+        source_language=source_language,
+        target_language=target_language,
     )
-    translated_text = translator.translate(text)
     print(json.dumps({"provider": "google-web", "translatedText": translated_text}, ensure_ascii=False))
+
+
+def translate_with_google_web(*, text: str, source_language: str, target_language: str) -> str:
+    endpoint = "https://translate.googleapis.com/translate_a/single"
+    params = urllib.parse.urlencode(
+        {
+            "client": "gtx",
+            "sl": "auto" if source_language == "auto" else source_language,
+            "tl": target_language,
+            "dt": "t",
+            "q": text,
+        }
+    )
+    with urllib.request.urlopen(f"{endpoint}?{params}", timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    translated_text = "".join(part[0] for part in (payload[0] if payload and payload[0] else []) if part and part[0])
+    if not translated_text.strip():
+        raise SystemExit("Google web translation did not return any translated text.")
+    return translated_text
 
 
 if __name__ == "__main__":

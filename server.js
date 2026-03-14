@@ -1558,10 +1558,27 @@ function normalizeNarrationModelLanguage(language) {
 
 function normalizeTranslationProviderLanguage(language) {
   const code = normalizeLanguageCode(language);
+  const provider = getTranslationProvider();
+  if (provider === "google-web") {
+    if (code === "pt-pt") {
+      return "pt-PT";
+    }
+    if (code === "pt-br") {
+      return "pt-BR";
+    }
+    return code;
+  }
   if (code === "pt-br" || code === "pt-pt") {
     return "pt";
   }
   return code;
+}
+
+function getTranslationProvider() {
+  if (process.env.LIBRETRANSLATE_URL) {
+    return "libretranslate";
+  }
+  return process.env.DEFAULT_TRANSLATION_PROVIDER || "google-web";
 }
 
 function normalizeTtsBackend(backend) {
@@ -2015,6 +2032,7 @@ async function runCommand(command, args) {
 }
 
 async function translateText({ text, source, target }) {
+  const provider = getTranslationProvider();
   const normalizedSource = normalizeTranslationProviderLanguage(source || "auto");
   const normalizedTarget = normalizeTranslationProviderLanguage(target || "pt-pt");
 
@@ -2047,7 +2065,6 @@ async function translateText({ text, source, target }) {
     };
   }
 
-  const provider = process.env.DEFAULT_TRANSLATION_PROVIDER || "google-web";
   if (provider === "google-web") {
     const translation = await translateWithGoogleWeb({
       text,
@@ -2109,6 +2126,10 @@ async function translateWithGoogleWeb({ text, source, target }) {
 function translationNeedsRetry(translatedText, source, target) {
   if (!translatedText?.trim()) {
     return true;
+  }
+
+  if (normalizeLanguageCode(target) === "pt-pt") {
+    return ptPortugalTranslationNeedsRetry(translatedText);
   }
 
   if (target !== "pt") {
@@ -2223,6 +2244,19 @@ function normalizePortugueseForPortugal(text, sourceLanguage = "auto") {
 
   normalized = injectPortuguesePossessiveArticles(normalized);
   normalized = normalized
+    .replace(/\bpara você\b/giu, (match) => applySourceCasing(match, "para ti"))
+    .replace(/\bcom você\b/giu, (match) => applySourceCasing(match, "contigo"))
+    .replace(/\bde você\b/giu, (match) => applySourceCasing(match, "de ti"))
+    .replace(/\bem você\b/giu, (match) => applySourceCasing(match, "em ti"))
+    .replace(/\ba você\b/giu, (match) => applySourceCasing(match, "a ti"))
+    .replace(/\bpor você\b/giu, (match) => applySourceCasing(match, "por ti"))
+    .replace(/\bque você\b/giu, (match) => applySourceCasing(match, "que tu"))
+    .replace(/\bse você\b/giu, (match) => applySourceCasing(match, "se tu"))
+    .replace(/\bquando você\b/giu, (match) => applySourceCasing(match, "quando tu"))
+    .replace(/\bonde você\b/giu, (match) => applySourceCasing(match, "onde tu"))
+    .replace(/\bcomo você\b/giu, (match) => applySourceCasing(match, "como tu"))
+    .replace(/\bo que você\b/giu, (match) => applySourceCasing(match, "o que tu"))
+    .replace(/\bnão é\?/giu, "pois não?")
     .replace(/\br\.\s+e\s+a\s+(sra\.|senhora)\b/giu, "o senhor e a senhora")
     .replace(/\bSra\.(?=\s|$)/giu, (match) => applySourceCasing(match, "Senhora"))
     .replace(/\bSr\.(?=\s|$)/giu, (match) => applySourceCasing(match, "Senhor"))
@@ -2244,6 +2278,23 @@ function normalizePortugueseForPortugal(text, sourceLanguage = "auto") {
     .replace(/\bmae\b/giu, (match) => applySourceCasing(match, "mãe"))
     .replace(/\bmaes\b/giu, (match) => applySourceCasing(match, "mães"))
     .replace(/\bnumero\b/giu, (match) => applySourceCasing(match, "número"))
+    .replace(/\bvocê não tem\b/giu, (match) => applySourceCasing(match, "não tens"))
+    .replace(/\bvocê tem\b/giu, (match) => applySourceCasing(match, "tens"))
+    .replace(/\bvocê sabe\b/giu, (match) => applySourceCasing(match, "sabes"))
+    .replace(/\bvocê via\b/giu, (match) => applySourceCasing(match, "vias"))
+    .replace(/\bvocê viu\b/giu, (match) => applySourceCasing(match, "viste"))
+    .replace(/\bvocê deveria\b/giu, (match) => applySourceCasing(match, "deverias"))
+    .replace(/\bvocê podia\b/giu, (match) => applySourceCasing(match, "podias"))
+    .replace(/\bvocê pode\b/giu, (match) => applySourceCasing(match, "podes"))
+    .replace(/\bvocê quer\b/giu, (match) => applySourceCasing(match, "queres"))
+    .replace(/\bvocê queria\b/giu, (match) => applySourceCasing(match, "querias"))
+    .replace(/\bvocê consegue\b/giu, (match) => applySourceCasing(match, "consegues"))
+    .replace(/\bvocê conseguia\b/giu, (match) => applySourceCasing(match, "conseguias"))
+    .replace(/\bvocê está\b/giu, (match) => applySourceCasing(match, "estás"))
+    .replace(/\bvocê era\b/giu, (match) => applySourceCasing(match, "eras"))
+    .replace(/\bvocê foi\b/giu, (match) => applySourceCasing(match, "foste"))
+    .replace(/\bvocê vai\b/giu, (match) => applySourceCasing(match, "vais"))
+    .replace(/\bvocê gostaria\b/giu, (match) => applySourceCasing(match, "gostarias"))
     .replace(/\bvoce\b/giu, (match) => applySourceCasing(match, "tu"))
     .replace(/\bvocê\b/giu, (match) => applySourceCasing(match, "tu"));
 
@@ -2504,6 +2555,7 @@ async function readLibraryBook(bookId) {
     const { book: sanitizedBook, changed } = await sanitizeLibraryBookState(book);
     if (changed) {
       await persistLibraryBook(sanitizedBook);
+      await persistLibraryDerivedTexts(sanitizedBook);
     }
     return sanitizedBook;
   } catch {
@@ -2623,7 +2675,7 @@ function ptPortugalTranslationNeedsRetry(text) {
     return false;
   }
 
-  return /\b(?:você|vocês|ônibus|onibus|trem|trens|celular|celulares|banheiro|banheiros|sorvete|sorvetes|garota|garotas|menino|meninos|menina|meninas|bobagem|bobagens)\b/iu.test(
+  return /\b(?:você|ônibus|onibus|trem|trens|celular|celulares|banheiro|banheiros|sorvete|sorvetes|xícara|xicara|xícaras|xicaras|time|times)\b/iu.test(
     text
   );
 }
@@ -2649,6 +2701,9 @@ function resolveLibraryAudioFilePath(bookId, audioUrl) {
 async function sanitizeLibraryBookState(book) {
   let changed = false;
   const needsTranslation = bookPageNeedsTranslation(book);
+  const targetLanguage = normalizeLanguageCode(book.audiobookLanguage || "pt-pt");
+  const targetProviderLanguage = normalizeTranslationProviderLanguage(targetLanguage);
+  const targetIsPtPortugal = targetLanguage === "pt-pt";
   const generationLogPattern =
     /Generating segment \d+ of \d+\.|Loading Chatterbox models\.|Applying your uploaded voice sample\.|Combining narration chunks\.|Audiobook finished\./u;
 
@@ -2673,11 +2728,14 @@ async function sanitizeLibraryBookState(book) {
       changed = true;
     }
 
+    let translationChanged = false;
+    let resetTranslationForPtPortugal = false;
     if (page.translatedText?.trim()) {
-      if (normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" && !page.audioUrl) {
+      if (targetIsPtPortugal) {
         const normalizedTranslatedText = normalizePortugueseForPortugal(page.translatedText, book.detectedLanguage);
         if (normalizedTranslatedText && normalizedTranslatedText !== page.translatedText) {
           page.translatedText = normalizedTranslatedText;
+          translationChanged = true;
           changed = true;
         }
       }
@@ -2685,14 +2743,22 @@ async function sanitizeLibraryBookState(book) {
         page.translationStatus = "ready";
         changed = true;
       }
+      const hasLegacyPtTranslation =
+        targetIsPtPortugal &&
+        needsTranslation &&
+        Boolean(page.translationProviderTarget) &&
+        normalizeLanguageCode(page.translationProviderTarget) !== "pt-pt";
+      const missingPtDialectMarker = targetIsPtPortugal && needsTranslation && !page.translationProviderTarget;
       if (
-        normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" &&
-        !page.audioUrl &&
-        ptPortugalTranslationNeedsRetry(page.translatedText)
+        targetIsPtPortugal &&
+        (ptPortugalTranslationNeedsRetry(page.translatedText) || hasLegacyPtTranslation || missingPtDialectMarker)
       ) {
+        resetTranslationForPtPortugal = true;
         page.translatedText = "";
         page.translationStatus = "idle";
-        page.logs = [...(page.logs || []).slice(-4), "Retrying this translation with stronger PT-PT cleanup."];
+        page.translationProvider = "";
+        page.translationProviderTarget = "";
+        page.logs = [...(page.logs || []).slice(-4), "Refreshing this page with direct PT-PT translation."];
         changed = true;
       }
     } else if (!needsTranslation) {
@@ -2712,12 +2778,13 @@ async function sanitizeLibraryBookState(book) {
       changed = true;
     }
     const needsPtPortugalAssetRefresh =
-      normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" &&
+      targetIsPtPortugal &&
       !pageTaskActive &&
-      ptPortugalPageHasBrokenArtifact(page);
+      (ptPortugalPageHasBrokenArtifact(page) || translationChanged || resetTranslationForPtPortugal);
     if (hasInconsistentAudio || hasMissingAudioFile || needsPtPortugalAssetRefresh) {
       if (audioPath && audioExists) {
         await fsp.rm(audioPath, { force: true }).catch(() => {});
+        await fsp.rm(audioPath.replace(/\.wav$/iu, ".json"), { force: true }).catch(() => {});
       }
       page.audioStatus = "idle";
       page.audioUrl = "";
@@ -2727,8 +2794,9 @@ async function sanitizeLibraryBookState(book) {
       if (hasInconsistentAudio) {
         page.logs = [...(page.logs || []).slice(-6), "Reset an out-of-sync page so you can generate it again cleanly."];
       } else if (needsPtPortugalAssetRefresh) {
-        page.translatedText = "";
-        page.translationStatus = "idle";
+        if (!page.translatedText?.trim()) {
+          page.translationStatus = "idle";
+        }
         page.logs = [...(page.logs || []).slice(-6), "Reset this page to rebuild it with the latest PT-PT fixes."];
       }
       changed = true;
@@ -2737,6 +2805,17 @@ async function sanitizeLibraryBookState(book) {
       changed = true;
     } else if (page.audioUrl && page.audioStatus !== "ready") {
       page.audioStatus = "ready";
+      changed = true;
+    }
+
+    if (needsTranslation) {
+      const expectedProviderTarget = page.translatedText?.trim() ? targetProviderLanguage : "";
+      if ((page.translationProviderTarget || "") !== expectedProviderTarget) {
+        page.translationProviderTarget = expectedProviderTarget;
+        changed = true;
+      }
+    } else if (page.translationProviderTarget) {
+      page.translationProviderTarget = "";
       changed = true;
     }
 
@@ -3249,12 +3328,16 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
               ? normalizePortugueseForPortugal(translatedText, book.detectedLanguage)
               : translatedText;
           page.translationStatus = "ready";
+          page.translationProvider = getTranslationProvider();
+          page.translationProviderTarget = normalizeTranslationProviderLanguage(book.audiobookLanguage);
           appendPageLog(page, "Translation saved for this page.");
           await persistLibraryBook(book);
           await persistLibraryDerivedTexts(book);
         } else {
           page.translatedText = page.originalText;
           page.translationStatus = "ready";
+          page.translationProvider = "identity";
+          page.translationProviderTarget = "";
         }
       }
 
