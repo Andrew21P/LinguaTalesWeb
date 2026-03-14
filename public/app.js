@@ -8,6 +8,7 @@ const state = {
   libraryBooks: [],
   piperVoices: [],
   savedWords: [],
+  deletingBookIds: new Set(),
   selectedVoice: null,
   currentBook: null,
   currentPage: null,
@@ -39,6 +40,7 @@ const state = {
   previewRequestToken: 0,
   pageOpening: false,
   pageOpenRequestToken: 0,
+  currentDeletingBookId: "",
 };
 
 const els = {
@@ -251,6 +253,8 @@ async function handleLogout() {
   state.currentPage = null;
   state.previewPage = null;
   state.savedWords = [];
+  state.deletingBookIds = new Set();
+  state.currentDeletingBookId = "";
   state.lookup = null;
   state.currentTokens = [];
   state.lookupTokens = [];
@@ -533,12 +537,14 @@ function renderLibraryBooks() {
 
   state.libraryBooks.forEach((book) => {
     const percent = getBookProgressPercent(book);
+    const isDeleting = state.deletingBookIds.has(book.id);
     const shell = document.createElement("div");
     shell.className = "book-card-shell";
 
     const button = document.createElement("button");
     button.type = "button";
     button.className = `book-card${state.currentBook?.id === book.id ? " active" : ""}`;
+    button.disabled = isDeleting;
     button.innerHTML = `
       <div class="book-cover">${renderCoverMarkup(book.coverUrl, book.title)}</div>
       <div class="book-card-copy">
@@ -555,7 +561,9 @@ function renderLibraryBooks() {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "book-card-delete";
-    deleteButton.textContent = "Delete";
+    deleteButton.disabled = isDeleting;
+    deleteButton.classList.toggle("is-loading", isDeleting);
+    deleteButton.textContent = isDeleting ? "Deleting..." : "Delete";
     deleteButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -588,7 +596,9 @@ function renderReaderShell() {
   els.goToPageInput.max = String(totalPages || 1);
   els.pagePrev.disabled = !hasBook || state.currentPageIndex <= 0;
   els.pageNext.disabled = !hasBook || state.currentPageIndex >= totalPages - 1;
-  els.readerDeleteBook.disabled = !state.currentBook;
+  const isDeletingCurrentBook = Boolean(state.currentBook?.id && state.currentDeletingBookId === state.currentBook.id);
+  els.readerDeleteBook.disabled = !state.currentBook || isDeletingCurrentBook;
+  els.readerDeleteBook.textContent = isDeletingCurrentBook ? "Deleting this book..." : "Delete this book";
   updateLanguagePills();
   updateReaderStatusPill();
 
@@ -941,9 +951,22 @@ async function handleDeleteBook(bookId) {
     return;
   }
 
+  if (state.deletingBookIds.has(bookId)) {
+    return;
+  }
+
   const confirmed = window.confirm(`Delete "${book.title}" from your library?`);
   if (!confirmed) {
     return;
+  }
+
+  state.deletingBookIds.add(bookId);
+  state.currentDeletingBookId = bookId;
+  renderLibraryBooks();
+  renderReaderShell();
+  setBookStatus(`Deleting "${book.title}" from your shelf...`);
+  if (state.currentBook?.id === bookId) {
+    setReaderStageStatus(`Deleting "${book.title}" from your shelf...`, { loading: true });
   }
 
   try {
@@ -962,6 +985,7 @@ async function handleDeleteBook(bookId) {
       els.bookAudio.removeAttribute("src");
       els.bookAudio.load();
       stopPageStatusPolling();
+      state.activePreparationKey = "";
     }
     renderLibraryBooks();
     renderReaderShell();
@@ -970,6 +994,13 @@ async function handleDeleteBook(bookId) {
     setBookStatus(`Removed "${book.title}" from your shelf.`);
   } catch (error) {
     setBookStatus(error.message, true);
+  } finally {
+    state.deletingBookIds.delete(bookId);
+    if (state.currentDeletingBookId === bookId) {
+      state.currentDeletingBookId = "";
+    }
+    renderLibraryBooks();
+    renderReaderShell();
   }
 }
 

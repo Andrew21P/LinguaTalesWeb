@@ -548,8 +548,9 @@ app.post("/api/books/import", requireSession, upload.single("bookFile"), async (
 
 app.delete("/api/books/:bookId", requireSession, async (req, res) => {
   try {
-    const book = await readLibraryBook(req.params.bookId);
-    if (!book) {
+    const bookDir = getLibraryBookDir(req.params.bookId);
+    const metadataPath = getLibraryBookMetadataPath(req.params.bookId);
+    if (!fs.existsSync(bookDir) && !fs.existsSync(metadataPath)) {
       return res.status(404).json({
         ok: false,
         error: "That book was not found.",

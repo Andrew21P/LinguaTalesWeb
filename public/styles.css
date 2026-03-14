@@ -500,6 +500,11 @@ h3 {
   cursor: pointer;
 }
 
+.book-card-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .section-heading {
   justify-content: space-between;
   align-items: flex-start;
