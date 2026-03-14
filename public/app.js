@@ -6,6 +6,7 @@ const state = {
   preferences: null,
   localAccessUrls: [],
   libraryBooks: [],
+  piperVoices: [],
   currentBook: null,
   currentPageIndex: 0,
   title: "",
@@ -46,11 +47,6 @@ const state = {
   pageStatusPollerBusy: false,
   readerTurnTimer: 0,
   lastWarmWindowKey: "",
-};
-
-const voicePromptHints = {
-  "pt-pt":
-    "O Senhor tinha três portas no número quatro, e os vizinhos tinham tempo para ouvir tudo com calma, clareza e presença natural.",
 };
 
 const els = {
@@ -94,6 +90,8 @@ const els = {
   listenerLanguagePill: document.querySelector("#listener-language-pill"),
   voicePill: document.querySelector("#voice-pill"),
   voiceShelf: document.querySelector("#voice-shelf"),
+  piperCatalog: document.querySelector("#piper-catalog"),
+  piperCatalogStatus: document.querySelector("#piper-catalog-status"),
   supportedLanguageList: document.querySelector("#supported-language-list"),
   chapterButtonTemplate: document.querySelector("#chapter-button-template"),
   wordPopover: document.querySelector("#word-popover"),
@@ -105,6 +103,7 @@ const els = {
   voicePreview: document.querySelector("#voice-preview"),
   voiceScriptText: document.querySelector("#voice-script-text"),
   recordingStatus: document.querySelector("#recording-status"),
+  recordingCard: document.querySelector("#recording-card"),
   generateButton: document.querySelector("#generate-button"),
   generationStatus: document.querySelector("#generation-status"),
   generationLabel: document.querySelector("#generation-label"),
@@ -206,12 +205,14 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
+  renderPiperCatalog();
   renderProfile(meta.profile, meta.localAccessUrls || []);
   syncVoiceCaptureCapabilities();
   if (!meta.modelInfo?.supportsCustomVoiceCloning && meta.preferences?.selectedVoiceId !== state.selectedVoice?.id) {
     void persistPreferences();
   }
   els.generateButton.textContent = "Generate audiobook";
+  void loadPiperVoiceCatalog();
 
   const booksPayload = await fetchJson("/api/books");
   state.libraryBooks = booksPayload.books || [];
@@ -373,7 +374,7 @@ async function handleBookOpen(event) {
     const importMessage = payload.existing
       ? `"${payload.book.title}" was already in your library, so I opened the saved copy.`
       : `Saved "${payload.book.title}" to your library.`;
-    setBookStatus(payload.existing ? importMessage : `${importMessage} Pick a voice and click Generate audiobook.`);
+    setBookStatus(payload.existing ? importMessage : `${importMessage} Choose the narration voice and click Generate audiobook.`);
     setSelectionTranslation(importMessage, false);
     els.bookFile.value = "";
   } catch (error) {
@@ -430,34 +431,39 @@ function renderSupportedLanguages(languages) {
 
 function renderVoiceShelf() {
   els.voiceShelf.innerHTML = "";
+  const visibleVoiceSamples = getVisibleVoiceSamples();
 
-  if (state.selectedVoice && !state.voiceSamples.some((sample) => sample.id === state.selectedVoice.id)) {
+  if (state.selectedVoice && !visibleVoiceSamples.some((sample) => sample.id === state.selectedVoice.id)) {
     state.selectedVoice = null;
   }
   if (!state.selectedVoice) {
-    state.selectedVoice = state.voiceSamples[0] || null;
+    state.selectedVoice = visibleVoiceSamples[0] || null;
   }
 
-  state.voiceSamples.forEach((sample) => {
+  if (!visibleVoiceSamples.length) {
+    els.voiceShelf.classList.add("empty-state");
+    els.voiceShelf.textContent = "No compatible narration voices are available right now.";
+    updateVoicePill();
+    return;
+  }
+
+  els.voiceShelf.classList.remove("empty-state");
+
+  visibleVoiceSamples.forEach((sample) => {
     const shell = document.createElement("div");
     shell.className = "voice-card-shell";
 
     const button = document.createElement("button");
     button.type = "button";
     const isActive = state.selectedVoice?.id === sample.id;
-    const customVoiceUnavailable = !sample.builtIn && !state.modelInfo?.supportsCustomVoiceCloning;
     button.className = `voice-card${isActive ? " active" : ""}`;
     button.dataset.voiceId = sample.id;
-    button.disabled = customVoiceUnavailable;
     button.innerHTML = `
       <strong>${sample.name}</strong>
       <small>${sample.vibe}</small>
       <small>${languageLabels.get(sample.language) || sample.language.toUpperCase()}</small>
     `;
     button.addEventListener("click", () => {
-      if (customVoiceUnavailable) {
-        return;
-      }
       state.selectedVoice = sample;
       renderVoiceShelf();
       void persistPreferences();
@@ -465,26 +471,109 @@ function renderVoiceShelf() {
 
     shell.append(button);
 
-    if (!sample.builtIn && state.modelInfo?.supportsCustomVoiceCloning) {
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "voice-delete-button";
-      deleteButton.dataset.voiceId = sample.id;
-      deleteButton.textContent = "Delete";
-      deleteButton.setAttribute("aria-label", `Delete ${sample.name}`);
-      deleteButton.addEventListener("click", async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        await handleDeleteVoiceSample(sample.id);
-      });
-      shell.append(deleteButton);
-    }
-
     els.voiceShelf.append(shell);
   });
 
   updateVoicePill();
   refreshVoicePreview();
+}
+
+function getVisibleVoiceSamples() {
+  if (!state.modelInfo?.supportsCustomVoiceCloning) {
+    return state.voiceSamples.filter((sample) => sample.builtIn);
+  }
+  return state.voiceSamples;
+}
+
+async function loadPiperVoiceCatalog() {
+  try {
+    if (els.piperCatalogStatus) {
+      els.piperCatalogStatus.textContent = "Loading voices...";
+    }
+    const payload = await fetchJson("/api/piper/voices");
+    state.piperVoices = payload.voices || [];
+    renderPiperCatalog();
+  } catch (error) {
+    if (els.piperCatalogStatus) {
+      els.piperCatalogStatus.textContent = "Catalog unavailable";
+    }
+    if (els.piperCatalog) {
+      els.piperCatalog.classList.add("empty-state");
+      els.piperCatalog.textContent = error.message;
+    }
+  }
+}
+
+function renderPiperCatalog() {
+  if (!els.piperCatalog) {
+    return;
+  }
+
+  if (!state.piperVoices.length) {
+    els.piperCatalog.classList.add("empty-state");
+    els.piperCatalog.textContent = "Loading the official Piper voices list...";
+    if (els.piperCatalogStatus) {
+      els.piperCatalogStatus.textContent = "Loading voices...";
+    }
+    return;
+  }
+
+  const groups = new Map();
+  state.piperVoices.forEach((voice) => {
+    const groupKey = `${voice.languageLabel}${voice.countryLabel ? ` · ${voice.countryLabel}` : ""}`;
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, []);
+    }
+    groups.get(groupKey).push(voice);
+  });
+
+  els.piperCatalog.classList.remove("empty-state");
+  els.piperCatalog.innerHTML = "";
+  if (els.piperCatalogStatus) {
+    els.piperCatalogStatus.textContent = `${state.piperVoices.length} voices`;
+  }
+
+  [...groups.entries()].forEach(([groupLabel, voices]) => {
+    const section = document.createElement("section");
+    section.className = "piper-language-group";
+
+    const header = document.createElement("div");
+    header.className = "piper-language-header";
+    header.innerHTML = `
+      <strong>${escapeHtml(groupLabel)}</strong>
+      <span>${voices.length} voice${voices.length === 1 ? "" : "s"}</span>
+    `;
+
+    const chipList = document.createElement("div");
+    chipList.className = "piper-chip-list";
+
+    voices.forEach((voice) => {
+      const chip = document.createElement(voice.selectable ? "button" : "span");
+      chip.className = `piper-chip${voice.compatible ? " is-compatible" : ""}${voice.active ? " active" : ""}`;
+      chip.innerHTML = `
+        <strong>${escapeHtml(voice.name)}</strong>
+        <small>${escapeHtml(voice.quality)}</small>
+      `;
+
+      if (voice.selectable) {
+        chip.type = "button";
+        chip.addEventListener("click", () => {
+          const builtInVoice = getVisibleVoiceSamples().find((sample) => sample.builtIn) || null;
+          if (!builtInVoice) {
+            return;
+          }
+          state.selectedVoice = builtInVoice;
+          renderVoiceShelf();
+          void persistPreferences();
+        });
+      }
+
+      chipList.append(chip);
+    });
+
+    section.append(header, chipList);
+    els.piperCatalog.append(section);
+  });
 }
 
 function renderLibraryBooks() {
@@ -705,17 +794,30 @@ async function openBookPage(pageIndex, options = {}) {
   await saveProgress();
 }
 
+function mergePageSummary(summaryPage, page) {
+  if (!summaryPage) {
+    return;
+  }
+
+  summaryPage.title = page.title || summaryPage.title || `Page ${page.index + 1}`;
+  summaryPage.preview = truncate(page.displayText || page.sourceText || "", 130);
+  summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
+  summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
+  summaryPage.audioEngine = page.audioEngine || summaryPage.audioEngine || "";
+  summaryPage.ready = Boolean(page.audioUrl);
+}
+
 function applyBookPage(book, page, options = {}) {
+  const preserveViewport = Boolean(options.preserveViewport);
+  const preservePlaybackState = Boolean(options.preservePlaybackState);
+  const previousScrollTop = preserveViewport ? els.readerContent.scrollTop : 0;
+  const previousAudioTime = preservePlaybackState ? Number(els.bookAudio.currentTime || 0) : 0;
+  const shouldResumePlayback = preservePlaybackState && !els.bookAudio.paused && !els.bookAudio.ended;
+  const sameAudioUrl = Boolean(page.audioUrl && state.currentAudioUrl && state.currentAudioUrl === page.audioUrl);
   state.currentBook = book;
   state.currentPageIndex = page.index;
   const summaryPage = state.currentBook?.pages?.[page.index];
-  if (summaryPage) {
-    summaryPage.title = page.title || summaryPage.title || `Page ${page.index + 1}`;
-    summaryPage.preview = truncate(page.displayText || page.sourceText || "", 130);
-    summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
-    summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
-    summaryPage.ready = Boolean(page.audioUrl);
-  }
+  mergePageSummary(summaryPage, page);
   state.title = book.title;
   state.sourceText = page.sourceText || "";
   state.fullText = page.displayText || "";
@@ -735,27 +837,37 @@ function applyBookPage(book, page, options = {}) {
   computeChapterWordMetrics();
   els.readerTitle.textContent = `${book.title} · ${page.title || `Page ${page.index + 1}`}`;
   renderCurrentChapter();
-  els.readerContent.scrollTop = 0;
-  animatePageTurn(options.turnDirection || "");
+  els.readerContent.scrollTop = preserveViewport ? previousScrollTop : 0;
+  if (!options.skipAnimate) {
+    animatePageTurn(options.turnDirection || "");
+  }
   updateLanguagePills();
 
   if (page.audioUrl) {
     state.currentAudioUrl = page.audioUrl;
-    els.bookAudio.src = page.audioUrl;
     setTransportAvailability(true);
-    const resumeTime =
-      book.progress?.pageIndex === page.index && Number.isFinite(book.progress?.audioTime) ? book.progress.audioTime : 0;
-    if (resumeTime > 0) {
-      els.bookAudio.addEventListener(
-        "loadedmetadata",
-        () => {
+    if (!sameAudioUrl) {
+      els.bookAudio.src = page.audioUrl;
+      const resumeTime = preservePlaybackState
+        ? previousAudioTime
+        : book.progress?.pageIndex === page.index && Number.isFinite(book.progress?.audioTime)
+          ? book.progress.audioTime
+          : 0;
+      const restorePlaybackState = () => {
+        if (resumeTime > 0) {
           els.bookAudio.currentTime = Math.min(resumeTime, Math.max(0, (els.bookAudio.duration || resumeTime) - 0.2));
-        },
-        { once: true }
-      );
-    }
-    if (options.autoplay) {
-      void els.bookAudio.play();
+        }
+        if (shouldResumePlayback || options.autoplay) {
+          void els.bookAudio.play().catch(() => {});
+        }
+      };
+      if (els.bookAudio.readyState >= 1) {
+        restorePlaybackState();
+      } else {
+        els.bookAudio.addEventListener("loadedmetadata", restorePlaybackState, { once: true });
+      }
+    } else if (shouldResumePlayback && els.bookAudio.paused) {
+      void els.bookAudio.play().catch(() => {});
     }
   } else {
     state.currentAudioUrl = "";
@@ -934,13 +1046,17 @@ function renderCurrentChapter() {
 
 function syncVoiceCaptureCapabilities() {
   const supportsCustomVoiceCloning = Boolean(state.modelInfo?.supportsCustomVoiceCloning);
+  const hideCustomVoiceUi = !supportsCustomVoiceCloning;
+  if (els.recordingCard) {
+    els.recordingCard.classList.toggle("hidden", hideCustomVoiceUi);
+  }
   els.recordToggle.disabled = !supportsCustomVoiceCloning;
   els.uploadVoiceButton.disabled = !supportsCustomVoiceCloning;
   els.voiceFile.disabled = !supportsCustomVoiceCloning;
 
   if (!supportsCustomVoiceCloning) {
     els.recordingStatus.textContent =
-      "Fast VPS mode is using the built-in PT-PT voice. Custom clone samples are disabled in this backend.";
+      "Fast VPS mode is using built-in Piper voices. Custom clone samples are hidden in this backend.";
   }
 }
 
@@ -1354,7 +1470,7 @@ async function handlePlayToggle() {
     updateGenerationUi({
       label: `Page ${state.currentPageIndex + 1} is not ready yet.`,
       progress: 0,
-      logs: ["Pick your voice and click Generate audiobook first."],
+      logs: ["Choose the narration voice and click Generate audiobook first."],
     });
     els.generationStatus.classList.remove("hidden");
     return;
@@ -1490,10 +1606,12 @@ function inferGenerationProgressFromPage(page) {
 
   const segmentLog =
     page.audioStatus === "running"
-      ? [...(page.logs || [])].reverse().find((entry) => /Generating segment \d+ of \d+\./u.test(entry))
+      ? [...(page.logs || [])]
+          .reverse()
+          .find((entry) => /Generating segment \d+ of \d+(?: with Piper)?\./u.test(entry))
       : "";
   if (segmentLog) {
-    const match = segmentLog.match(/Generating segment (\d+) of (\d+)\./u);
+    const match = segmentLog.match(/Generating segment (\d+) of (\d+)(?: with Piper)?\./u);
     if (match) {
       const currentSegment = Number(match[1]);
       const totalSegments = Number(match[2]);
@@ -1552,17 +1670,13 @@ function startPageStatusPolling(bookId, pageIndex) {
       const payload = await fetchJson(`/api/books/${bookId}/pages/${pageIndex}`);
       const page = payload.page;
       const summaryPage = state.currentBook?.pages?.[pageIndex];
-      if (summaryPage) {
-        summaryPage.translationStatus = page.translationStatus || summaryPage.translationStatus || "idle";
-        summaryPage.audioStatus = page.audioStatus || summaryPage.audioStatus || "idle";
-        summaryPage.ready = Boolean(page.audioUrl);
-      }
+      mergePageSummary(summaryPage, page);
 
       if (state.currentBook?.id === bookId && state.currentPageIndex === pageIndex) {
-        updateGenerationUi({
-          label: buildGenerationLabelFromPage(page),
-          progress: inferGenerationProgressFromPage(page),
-          logs: page.logs?.length ? page.logs : ["Waiting for generation logs..."],
+        applyBookPage(state.currentBook, page, {
+          preserveViewport: true,
+          preservePlaybackState: true,
+          skipAnimate: true,
         });
         renderPageList();
       }
@@ -1780,6 +1894,13 @@ function getVoiceLabelValue() {
 }
 
 function refreshVoicePreview() {
+  if (!state.modelInfo?.supportsCustomVoiceCloning) {
+    els.voicePreview.pause();
+    els.voicePreview.removeAttribute("src");
+    els.voicePreview.hidden = true;
+    return;
+  }
+
   const previewSample = state.selectedVoice && !state.selectedVoice.builtIn ? state.selectedVoice : null;
   if (!previewSample?.url) {
     els.voicePreview.pause();
@@ -1795,10 +1916,10 @@ function refreshVoicePreview() {
 }
 
 function updateVoicePromptHint() {
-  const language = els.audiobookLanguage.value;
-  els.voiceScriptText.textContent =
-    voicePromptHints[language] ||
-    "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
+  if (els.voiceScriptText) {
+    els.voiceScriptText.textContent =
+      "Read one calm, natural sentence with numbers and names so the cloned voice captures your rhythm clearly.";
+  }
 }
 
 function getLanguageLabel(code) {

@@ -1,6 +1,6 @@
 # Voxenor
 
-Voxenor is a local-first audiobook library: import a `PDF`, `EPUB`, `TXT`, or book-page photo, save it into a private local shelf, record a voice sample in the browser, translate page by page into PT-PT, and read along with saved progress and inline translation.
+Voxenor is a local-first audiobook library: import a `PDF`, `EPUB`, `TXT`, or book-page photo, save it into a private local shelf, translate page by page into PT-PT, and read along with saved progress and inline translation.
 
 ## Stack
 
@@ -16,8 +16,7 @@ Voxenor is a local-first audiobook library: import a `PDF`, `EPUB`, `TXT`, or bo
 - OCR for scanned pages and book photos with free local tooling
 - Password-gated local session with cached sign-in
 - Saved library with progress, per-page text, and resumable audio
-- In-browser voice recording and audio sample upload
-- Named custom voice samples with in-app delete controls
+- Official Piper voice catalog surfaced inside the app
 - PT-PT-first audiobook generation pipeline with source-language detection, stronger free translation, and a CPU-fast Piper path for VPS-friendly repeat generations
 - Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation
@@ -98,7 +97,7 @@ Optional variables:
 - `TTS_BACKEND=chatterbox` to force the slower clone-oriented path everywhere
 - `PIPER_*` values if you want to pin a different Piper PT-PT voice model or retune its pacing/noise defaults
 - `DEFAULT_EXAGGERATION=0.52` if you want to tune the fixed narration expressiveness default
-- `DEFAULT_NARRATION_SPEED=0.95` if you want to tune the default rendered narration tempo
+- `DEFAULT_NARRATION_SPEED=0.92` if you want to tune the default rendered narration tempo
 - `DEFAULT_CFG_WEIGHT=0.28` if you want a slightly calmer multilingual Chatterbox guidance setting
 - `READY_PAGE_WINDOW=3` if you want Voxenor to keep more or fewer upcoming pages warming in the background
 - `MIN_VOICE_PROMPT_SECONDS=2.4` if you want to tune the minimum accepted cleaned voice-sample length

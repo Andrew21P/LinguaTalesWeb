@@ -17,7 +17,7 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
 const defaultExaggeration = Number(process.env.DEFAULT_EXAGGERATION || 0.52);
-const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.95);
+const defaultNarrationSpeed = Number(process.env.DEFAULT_NARRATION_SPEED || 0.92);
 const defaultCfgWeight = Number(process.env.DEFAULT_CFG_WEIGHT || 0.28);
 const minVoicePromptSeconds = Number(process.env.MIN_VOICE_PROMPT_SECONDS || 2.4);
 const readyPageWindow = Math.max(1, Number(process.env.READY_PAGE_WINDOW || 3));
@@ -37,9 +37,11 @@ const configuredTtsBackend = normalizeTtsBackend(process.env.TTS_BACKEND || "pip
 const piperVoiceId = String(process.env.PIPER_VOICE_ID || "pt_PT-tugão-medium").trim() || "pt_PT-tugão-medium";
 const piperDownloadDir = process.env.PIPER_DOWNLOAD_DIR || path.join(dataDir, "piper", "voices");
 const piperModelPath = process.env.PIPER_MODEL_PATH || path.join(piperDownloadDir, "pt_PT-tugao-medium.onnx");
-const piperLengthScale = Number(process.env.PIPER_LENGTH_SCALE || 1.04);
+const piperLengthScale = Number(process.env.PIPER_LENGTH_SCALE || 1.12);
 const piperNoiseScale = Number(process.env.PIPER_NOISE_SCALE || 0.5);
 const piperNoiseWScale = Number(process.env.PIPER_NOISE_W_SCALE || 0.72);
+const piperCatalogCachePath = path.join(dataDir, "piper", "voices-catalog.json");
+const piperCatalogUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json?download=true";
 
 for (const dir of [dataDir, uploadsDir, voicesDir, audioDir, libraryDir, tmpDir, jobsDir, piperDownloadDir]) {
   fs.mkdirSync(dir, { recursive: true });
@@ -65,6 +67,9 @@ let piperWorkerStdoutRemainder = "";
 let piperWorkerStderrRemainder = "";
 let piperWorkerActiveJob = null;
 let piperWorkerQueue = Promise.resolve();
+let piperVoiceCatalogCache = null;
+let piperVoiceCatalogFetchedAt = 0;
+let piperVoiceCatalogPromise = null;
 const appAccountEmail = (process.env.APP_ACCOUNT_EMAIL || "eleonorashatkovska@gmail.com").trim().toLowerCase();
 const appAccountPassword = process.env.APP_ACCOUNT_PASSWORD || "1234";
 const appAccountName = (process.env.APP_ACCOUNT_NAME || "Eleonora Shatkovska").trim();
@@ -298,8 +303,25 @@ app.get("/api/meta", requireSession, (_req, res) => {
       note: getNarrationBackendNote(getDefaultNarrationEngine()),
       backend: getDefaultNarrationEngine(),
       supportsCustomVoiceCloning: narrationBackendSupportsCustomVoiceCloning(getDefaultNarrationEngine()),
+      builtinVoiceCatalogId: piperVoiceId,
     },
   });
+});
+
+app.get("/api/piper/voices", requireSession, async (_req, res) => {
+  try {
+    const voices = await getPiperVoiceCatalog();
+    return res.json({
+      ok: true,
+      voices,
+      activeVoiceId: piperVoiceId,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
 });
 
 app.post("/api/book/extract", requireSession, upload.single("bookFile"), async (req, res) => {
@@ -1579,6 +1601,154 @@ function getNarrationBackendNote(engine) {
     return "Portuguese (Portugal) narration is running on a CPU-friendly Piper voice for fast VPS generation. Custom voice cloning is not available in this fast path.";
   }
   return "Portuguese narration is using the heavier Chatterbox multilingual clone path. It sounds richer with custom prompts, but it is much slower on CPU-only machines.";
+}
+
+async function getPiperVoiceCatalog() {
+  const cacheTtlMs = 1000 * 60 * 60 * 12;
+  if (piperVoiceCatalogCache && Date.now() - piperVoiceCatalogFetchedAt < cacheTtlMs) {
+    return piperVoiceCatalogCache;
+  }
+
+  if (piperVoiceCatalogPromise) {
+    return piperVoiceCatalogPromise;
+  }
+
+  piperVoiceCatalogPromise = (async () => {
+    try {
+      const response = await fetch(piperCatalogUrl, {
+        headers: {
+          "User-Agent": "Voxenor/1.0",
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`Official Piper catalog returned ${response.status}.`);
+      }
+      const payload = await response.json();
+      const normalizedCatalog = normalizePiperVoiceCatalog(payload);
+      piperVoiceCatalogCache = normalizedCatalog;
+      piperVoiceCatalogFetchedAt = Date.now();
+      await fsp.writeFile(
+        piperCatalogCachePath,
+        JSON.stringify(
+          {
+            fetchedAt: new Date(piperVoiceCatalogFetchedAt).toISOString(),
+            voices: normalizedCatalog,
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+      return normalizedCatalog;
+    } catch (error) {
+      const cachedCatalog = await readCachedPiperVoiceCatalog();
+      if (cachedCatalog.length) {
+        piperVoiceCatalogCache = cachedCatalog;
+        piperVoiceCatalogFetchedAt = Date.now();
+        return cachedCatalog;
+      }
+      const fallbackCatalog = [buildFallbackPiperVoiceCatalogEntry()];
+      piperVoiceCatalogCache = fallbackCatalog;
+      piperVoiceCatalogFetchedAt = Date.now();
+      return fallbackCatalog;
+    } finally {
+      piperVoiceCatalogPromise = null;
+    }
+  })();
+
+  return piperVoiceCatalogPromise;
+}
+
+async function readCachedPiperVoiceCatalog() {
+  if (!fs.existsSync(piperCatalogCachePath)) {
+    return [];
+  }
+
+  try {
+    const payload = JSON.parse(await fsp.readFile(piperCatalogCachePath, "utf8"));
+    return Array.isArray(payload?.voices) ? payload.voices : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizePiperVoiceCatalog(payload) {
+  const entries = Object.values(payload || {});
+  return entries
+    .map((entry) => {
+      const language = entry.language || {};
+      const appLanguageCode = normalizePiperLanguageCode(language.code || "");
+      const compatible = appLanguageCode === "pt-pt";
+      return {
+        key: String(entry.key || ""),
+        name: formatPiperVoiceName(entry.name || entry.key || "Voice"),
+        quality: String(entry.quality || "").toLowerCase() || "medium",
+        languageCode: appLanguageCode,
+        languageLabel: language.name_english || language.name_native || language.code || "Unknown",
+        countryLabel: language.country_english || "",
+        speakers: Number(entry.num_speakers || 1),
+        selectable: compatible && String(entry.key || "") === piperVoiceId,
+        compatible,
+        installed: compatible && String(entry.key || "") === piperVoiceId,
+        active: String(entry.key || "") === piperVoiceId,
+      };
+    })
+    .filter((entry) => entry.key)
+    .sort((left, right) => {
+      const leftLanguage = `${left.languageLabel} ${left.countryLabel}`.trim();
+      const rightLanguage = `${right.languageLabel} ${right.countryLabel}`.trim();
+      return (
+        Number(right.active) - Number(left.active) ||
+        Number(right.compatible) - Number(left.compatible) ||
+        leftLanguage.localeCompare(rightLanguage) ||
+        left.name.localeCompare(right.name) ||
+        left.quality.localeCompare(right.quality)
+      );
+    });
+}
+
+function buildFallbackPiperVoiceCatalogEntry() {
+  return {
+    key: piperVoiceId,
+    name: "Tugão",
+    quality: "medium",
+    languageCode: "pt-pt",
+    languageLabel: "Portuguese",
+    countryLabel: "Portugal",
+    speakers: 1,
+    selectable: true,
+    compatible: true,
+    installed: true,
+    active: true,
+  };
+}
+
+function normalizePiperLanguageCode(languageCode) {
+  const normalized = String(languageCode || "")
+    .trim()
+    .replaceAll("_", "-")
+    .toLowerCase();
+  if (normalized === "pt-pt" || normalized === "pt-br") {
+    return normalized;
+  }
+  if (normalized.includes("-")) {
+    return normalized;
+  }
+  return normalizeLanguageCode(normalized);
+}
+
+function formatPiperVoiceName(name) {
+  const label = String(name || "").trim();
+  if (!label) {
+    return "Voice";
+  }
+  if (label.includes("_")) {
+    return label
+      .split("_")
+      .map((part) => (part ? `${part.slice(0, 1).toUpperCase()}${part.slice(1)}` : part))
+      .join(" ");
+  }
+  return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`;
 }
 
 function resolveNarrationRequest({ voiceSampleId, voiceSamplePath }) {

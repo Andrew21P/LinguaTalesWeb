@@ -417,7 +417,7 @@ input[type="range"] {
 .voice-shelf {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .voice-card-shell {
@@ -432,7 +432,6 @@ input[type="range"] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(242, 250, 246, 0.68)),
     rgba(255, 255, 255, 0.5);
   padding: 0.9rem;
-  padding-right: 4.1rem;
   text-align: left;
   color: #103223;
   cursor: pointer;
@@ -457,26 +456,105 @@ input[type="range"] {
   margin-top: 0.35rem;
 }
 
-.voice-delete-button {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
-  border: 1px solid rgba(212, 228, 220, 0.92);
-  border-radius: 999px;
-  padding: 0.42rem 0.72rem;
-  background: rgba(255, 255, 255, 0.88);
-  color: rgba(18, 62, 43, 0.82);
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 700;
-  box-shadow: 0 12px 24px rgba(16, 49, 35, 0.08);
-  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+.catalog-card {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(240, 248, 244, 0.64)),
+    rgba(255, 255, 255, 0.48);
+  border: 1px solid rgba(214, 230, 221, 0.92);
 }
 
-.voice-delete-button:hover {
+.catalog-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.piper-catalog {
+  display: grid;
+  gap: 0.95rem;
+  max-height: 24rem;
+  overflow: auto;
+  padding-right: 0.3rem;
+}
+
+.piper-language-group {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.piper-language-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.piper-language-header strong {
+  font-size: 0.95rem;
+  color: #143425;
+}
+
+.piper-language-header span {
+  font-size: 0.8rem;
+  color: rgba(58, 83, 71, 0.76);
+}
+
+.piper-chip-list {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.piper-chip {
+  display: inline-grid;
+  gap: 0.15rem;
+  padding: 0.62rem 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(214, 230, 221, 0.92);
+  background: rgba(255, 255, 255, 0.76);
+  color: rgba(19, 55, 38, 0.88);
+  box-shadow: var(--shadow-soft);
+  min-width: 8.8rem;
+}
+
+.piper-chip strong {
+  font-size: 0.88rem;
+}
+
+.piper-chip small {
+  font-size: 0.75rem;
+  color: rgba(58, 83, 71, 0.72);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.piper-chip.is-compatible {
+  border-color: rgba(25, 163, 107, 0.24);
+}
+
+.piper-chip.active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(235, 249, 241, 0.9)),
+    rgba(255, 255, 255, 0.84);
+  border-color: rgba(25, 163, 107, 0.38);
+}
+
+button.piper-chip {
+  cursor: pointer;
+  text-align: left;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+button.piper-chip:hover {
   transform: translateY(-1px);
-  border-color: rgba(25, 163, 107, 0.32);
-  background: rgba(245, 252, 248, 0.96);
+  border-color: rgba(25, 163, 107, 0.38);
+  box-shadow: 0 18px 36px rgba(18, 43, 31, 0.12);
 }
 
 .support-card {
