@@ -789,6 +789,30 @@ select:focus {
   gap: 1rem;
 }
 
+.reader-stage-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  min-height: 2.75rem;
+  padding: 0.72rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(74, 54, 39, 0.12);
+  background: rgba(255, 251, 244, 0.84);
+  color: var(--muted);
+  text-align: center;
+  box-shadow: var(--shadow-soft);
+}
+
+.stage-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  border: 2px solid rgba(63, 15, 13, 0.18);
+  border-top-color: var(--merlot);
+  animation: stage-spin 760ms linear infinite;
+}
+
 .reader-controls {
   display: flex;
   justify-content: center;
@@ -846,6 +870,39 @@ select:focus {
     inset 0 0 0 1px rgba(255, 245, 232, 0.36),
     0 28px 60px rgba(14, 9, 5, 0.16);
   transform-origin: center center;
+}
+
+.reader-page-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: linear-gradient(180deg, rgba(245, 235, 220, 0.58), rgba(245, 235, 220, 0.42));
+  backdrop-filter: blur(4px);
+}
+
+.reader-page-overlay-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: min(24rem, 100%);
+  padding: 1rem 1.1rem;
+  border-radius: 1.2rem;
+  background: rgba(255, 252, 246, 0.92);
+  border: 1px solid rgba(74, 54, 39, 0.12);
+  box-shadow: 0 18px 40px rgba(19, 12, 8, 0.12);
+}
+
+.reader-page-overlay-card strong {
+  display: block;
+  margin-bottom: 0.18rem;
+}
+
+.reader-page-overlay-card p {
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .reader-spread {
@@ -1165,6 +1222,12 @@ select:focus {
   }
   100% {
     transform: perspective(1800px) rotateY(0deg) translateX(0);
+  }
+}
+
+@keyframes stage-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

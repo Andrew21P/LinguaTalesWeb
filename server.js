@@ -58,6 +58,7 @@ const jobs = new Map();
 const voiceRegistry = new Map();
 const bookPageTasks = new Map();
 const bookPreparationQueues = new Map();
+const bookPreparationTargets = new Map();
 let chatterboxWorker = null;
 let chatterboxWorkerStdoutRemainder = "";
 let chatterboxWorkerStderrRemainder = "";
@@ -2849,6 +2850,126 @@ function countWords(text) {
   return (text.match(/[\p{L}\p{M}\p{N}ºª]+(?:['’\-][\p{L}\p{M}\p{N}ºª]+)*/gu) || []).length;
 }
 
+function analyzeBookStructure(pages) {
+  const chapterMarkers = [];
+  const maxScanPages = Math.min(pages.length, 40);
+  let suggestedStartPageIndex = 0;
+  let foundStart = false;
+
+  for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
+    const page = pages[pageIndex];
+    const analysis = analyzePageStructure(page.originalText || "");
+    if (analysis.title) {
+      page.title = analysis.title;
+    }
+
+    if (analysis.isChapterStart) {
+      chapterMarkers.push({
+        pageIndex,
+        title: analysis.title || `Page ${pageIndex + 1}`,
+      });
+      if (!foundStart) {
+        suggestedStartPageIndex = pageIndex;
+        foundStart = true;
+      }
+    }
+  }
+
+  if (!foundStart) {
+    for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
+      const page = pages[pageIndex];
+      const analysis = analyzePageStructure(page.originalText || "");
+      if (!analysis.isFrontMatter && countWords(page.originalText || "") > 70) {
+        suggestedStartPageIndex = pageIndex;
+        foundStart = true;
+        break;
+      }
+    }
+  }
+
+  return {
+    suggestedStartPageIndex,
+    chapterMarkers,
+  };
+}
+
+function analyzePageStructure(text) {
+  const normalizedText = normalizeText(text || "");
+  const lines = normalizedText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const firstLines = lines.slice(0, 6);
+  const firstChunk = firstLines.join(" ").slice(0, 260);
+  const tocLineCount = lines.filter((line) => /\.{2,}\s*\d+\s*$/u.test(line) || /\b\d+\s*$/u.test(line)).length;
+  const wordCount = countWords(normalizedText);
+
+  const frontMatterPattern =
+    /\b(?:table of contents|contents|index|copyright|all rights reserved|isbn|foreword|preface|acknowledg(?:e)?ments?|introduction|dedication|title page|sum[aá]rio|[íi]ndice|pref[aá]cio|agradecimentos|introdu[cç][aã]o|dedicat[oó]ria)\b/iu;
+  const chapterPattern =
+    /^(?:chapter|cap[ií]tulo|livro|book|part|parte|prologue|pr[oó]logo|epilogue|ep[ií]logo)\b/iu;
+
+  const chapterHeadingLine = firstLines.find((line) => chapterPattern.test(line)) || "";
+  const romanHeadingLine = firstLines.find((line) => /^(?:[IVXLCDM]+|[0-9]{1,3})[.)-]?$/u.test(line)) || "";
+  const titleCandidateLines = firstLines.filter((line) => isBookHeadingLine(line)).slice(0, 2);
+  const titleCandidate = titleCandidateLines.join(" - ");
+
+  let chapterScore = 0;
+  if (chapterHeadingLine) {
+    chapterScore += 4;
+  }
+  if (romanHeadingLine && titleCandidateLines.length >= 1) {
+    chapterScore += 2;
+  }
+  if (!chapterHeadingLine && titleCandidateLines.length >= 1 && wordCount >= 40 && wordCount <= 180 && tocLineCount === 0) {
+    chapterScore += 1;
+  }
+
+  let frontMatterScore = 0;
+  if (frontMatterPattern.test(firstChunk)) {
+    frontMatterScore += 3;
+  }
+  if (tocLineCount >= 3) {
+    frontMatterScore += 3;
+  }
+  if (/\b(?:copyright|all rights reserved|isbn)\b/iu.test(normalizedText.slice(0, 600))) {
+    frontMatterScore += 3;
+  }
+  if (wordCount < 60 && !chapterHeadingLine) {
+    frontMatterScore += 1;
+  }
+
+  const isFrontMatter = frontMatterScore >= 3 && chapterScore < 4;
+  const isChapterStart = chapterScore >= 3 && !isFrontMatter;
+
+  return {
+    isFrontMatter,
+    isChapterStart,
+    title: titleCandidate || chapterHeadingLine || "",
+  };
+}
+
+function isBookHeadingLine(line) {
+  const normalizedLine = String(line || "").trim();
+  if (!normalizedLine || normalizedLine.length > 90) {
+    return false;
+  }
+
+  const wordCountForLine = countWords(normalizedLine);
+  if (wordCountForLine === 0 || wordCountForLine > 14) {
+    return false;
+  }
+
+  if (/[.!?]$/u.test(normalizedLine)) {
+    return false;
+  }
+
+  const letters = [...normalizedLine].filter((character) => /\p{L}/u.test(character));
+  const uppercaseRatio =
+    letters.length > 0 ? letters.filter((character) => character === character.toUpperCase()).length / letters.length : 0;
+  return uppercaseRatio >= 0.35 || /^[A-ZÀ-Ý0-9]/u.test(normalizedLine);
+}
+
 function bookPageNeedsTranslation(book) {
   return (
     book.detectedLanguage &&
@@ -2950,6 +3071,20 @@ async function sanitizeLibraryBookState(book) {
   const generationLogPattern =
     /Generating segment \d+ of \d+\.|Loading Chatterbox models\.|Applying your uploaded voice sample\.|Combining narration chunks\.|Audiobook finished\./u;
   const cachedAudioArtifacts = await getCachedLibraryAudioArtifacts(book.id);
+
+  if ((!Number.isInteger(book.suggestedStartPageIndex) || !Array.isArray(book.chapterMarkers)) && Array.isArray(book.pages)) {
+    const structure = analyzeBookStructure(book.pages);
+    book.suggestedStartPageIndex = structure.suggestedStartPageIndex;
+    book.chapterMarkers = structure.chapterMarkers;
+    if ((Number(book.progress?.pageIndex || 0) === 0) && structure.suggestedStartPageIndex > 0) {
+      book.progress = {
+        pageIndex: structure.suggestedStartPageIndex,
+        audioTime: 0,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    changed = true;
+  }
 
   for (const [pageIndex, page] of (book.pages || []).entries()) {
     const pageTaskActive = [...bookPageTasks.keys()].some((taskKey) => taskKey.startsWith(`${book.id}:${pageIndex}:`));
@@ -3324,6 +3459,7 @@ async function createLibraryBookFromRequest(req) {
     alignment: null,
     logs: [],
   }));
+  const bookStructure = analyzeBookStructure(pages);
 
   const book = {
     id: bookId,
@@ -3340,8 +3476,10 @@ async function createLibraryBookFromRequest(req) {
     coverUrl,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    suggestedStartPageIndex: bookStructure.suggestedStartPageIndex,
+    chapterMarkers: bookStructure.chapterMarkers,
     progress: {
-      pageIndex: 0,
+      pageIndex: bookStructure.suggestedStartPageIndex,
       audioTime: 0,
       updatedAt: new Date().toISOString(),
     },
@@ -3408,6 +3546,46 @@ function resolveBookVoiceKey(voiceSampleId) {
 
 function buildAudioRenderKey(engine, voiceKey) {
   return `${engine}:${voiceKey}`;
+}
+
+function setBookPreparationTarget(bookId, voiceKey, anchorPageIndex) {
+  const target = {
+    voiceKey,
+    anchorPageIndex: Math.max(0, Number(anchorPageIndex) || 0),
+    readyWindow: readyPageWindow,
+    updatedAt: Date.now(),
+  };
+  bookPreparationTargets.set(bookId, target);
+  return target;
+}
+
+function shouldPreparePageForCurrentTarget(bookId, pageIndex, voiceKey) {
+  const target = bookPreparationTargets.get(bookId);
+  if (!target) {
+    return true;
+  }
+
+  if (target.voiceKey !== voiceKey) {
+    return false;
+  }
+
+  return pageIndex >= target.anchorPageIndex && pageIndex <= target.anchorPageIndex + target.readyWindow;
+}
+
+function queueUpcomingBookPages(book, anchorPageIndex, voiceKey) {
+  for (let offset = 1; offset <= readyPageWindow; offset += 1) {
+    const upcomingPageIndex = anchorPageIndex + offset;
+    if (upcomingPageIndex >= book.pages.length) {
+      break;
+    }
+
+    void startLibraryBookPagePreparation({
+      bookId: book.id,
+      pageIndex: upcomingPageIndex,
+      voiceSampleId: voiceKey,
+      prefetch: true,
+    }).catch(() => {});
+  }
 }
 
 function sanitizeVoiceKey(voiceKey) {
@@ -3507,6 +3685,17 @@ async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleI
     throw new Error("That page was not found.");
   }
 
+  if (!prefetch) {
+    setBookPreparationTarget(bookId, requestedVoiceKey, safePageIndex);
+  } else if (!shouldPreparePageForCurrentTarget(bookId, safePageIndex, requestedVoiceKey)) {
+    return {
+      book,
+      pageIndex: safePageIndex,
+      started: false,
+      skipped: true,
+    };
+  }
+
   const taskKey = `${bookId}:${safePageIndex}:${buildAudioRenderKey(narrationRequest.engine, requestedVoiceKey)}`;
   const alreadyReady = pageHasReadyAudio(page, requestedVoiceKey, narrationRequest.engine);
   if (!alreadyReady && !bookPageTasks.has(taskKey)) {
@@ -3516,20 +3705,10 @@ async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleI
       voiceSampleId: requestedVoiceKey,
       prefetch,
     }).catch(() => {});
-  } else if (!prefetch) {
-    for (let offset = 1; offset <= readyPageWindow; offset += 1) {
-      const upcomingPageIndex = safePageIndex + offset;
-      if (upcomingPageIndex >= book.pages.length) {
-        break;
-      }
+  }
 
-      void startLibraryBookPagePreparation({
-        bookId,
-        pageIndex: upcomingPageIndex,
-        voiceSampleId: requestedVoiceKey,
-        prefetch: true,
-      }).catch(() => {});
-    }
+  if (!prefetch) {
+    queueUpcomingBookPages(book, safePageIndex, requestedVoiceKey);
   }
 
   book = (await readLibraryBook(bookId)) || book;
@@ -3561,6 +3740,14 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
     const page = book.pages[safePageIndex];
     if (!page) {
       throw new Error("That page was not found.");
+    }
+
+    if (!shouldPreparePageForCurrentTarget(bookId, safePageIndex, voiceKey)) {
+      return {
+        book,
+        pageIndex: safePageIndex,
+        skipped: true,
+      };
     }
 
     try {
@@ -3611,6 +3798,14 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
           page.translationProvider = "identity";
           page.translationProviderTarget = "";
         }
+      }
+
+      if (!shouldPreparePageForCurrentTarget(bookId, safePageIndex, voiceKey)) {
+        return {
+          book,
+          pageIndex: safePageIndex,
+          skipped: true,
+        };
       }
 
       if (!pageHasReadyAudio(page, voiceKey, narrationRequest.engine)) {
@@ -3685,22 +3880,6 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         }
         appendPageLog(completedPage, "Audiobook page ready.");
         await persistLibraryBook(book);
-      }
-
-      if (!prefetch) {
-        for (let offset = 1; offset <= readyPageWindow; offset += 1) {
-          const upcomingPageIndex = safePageIndex + offset;
-          if (upcomingPageIndex >= book.pages.length) {
-            break;
-          }
-
-          void startLibraryBookPagePreparation({
-            bookId,
-            pageIndex: upcomingPageIndex,
-            voiceSampleId: voiceKey,
-            prefetch: true,
-          }).catch(() => {});
-        }
       }
 
       return {

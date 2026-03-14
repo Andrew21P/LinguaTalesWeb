@@ -110,7 +110,7 @@
                     <p class="eyebrow">Add a new book</p>
                     <h3>Import into your shelf</h3>
                   </div>
-                  <span class="soft-pill">PDF / EPUB / OCR</span>
+                  <span id="import-voice-summary" class="soft-pill">PDF / EPUB / OCR</span>
                 </div>
 
                 <form id="book-form" class="stack">
@@ -155,12 +155,12 @@
                     </label>
                   </div>
 
-                  <button id="book-submit" class="primary-button" type="submit">Save to library</button>
-                  <p id="book-status" class="status-text">Import once, then open the book from your shelf when you want to read.</p>
+                  <button id="book-submit" class="primary-button" type="submit">Save and read!</button>
+                  <p id="book-status" class="status-text">Import once and Voxenor opens the book right away, then starts preparing the current reading window.</p>
                 </form>
               </section>
 
-              <section class="card settings-card">
+              <section id="voice-settings-card" class="card settings-card">
                 <div class="section-heading">
                   <div>
                     <p class="eyebrow">Reading voice</p>
@@ -256,13 +256,13 @@
               <section class="card generation-card">
                 <div class="section-heading">
                   <div>
-                    <p class="eyebrow">Page audio</p>
-                    <h3>Generation status</h3>
+                    <p class="eyebrow">Smart page pipeline</p>
+                    <h3>Live page status</h3>
                   </div>
                   <span id="reader-status-pill" class="soft-pill">Idle</span>
                 </div>
 
-                <button id="generate-button" class="primary-button" type="button">Generate audiobook</button>
+                <button id="generate-button" class="primary-button hidden" type="button" aria-hidden="true">Generate audiobook</button>
 
                 <div id="generation-status" class="generation-status">
                   <div class="status-row">
@@ -278,6 +278,11 @@
             </aside>
 
             <section class="reader-stage-shell">
+              <div id="reader-stage-status" class="reader-stage-status">
+                <span id="reader-stage-spinner" class="stage-spinner hidden" aria-hidden="true"></span>
+                <span id="reader-stage-message">Open a book from your shelf to start reading.</span>
+              </div>
+
               <div class="reader-controls">
                 <button id="play-toggle" class="play-button" type="button" disabled>Play</button>
                 <button id="pause-toggle" class="ghost-button" type="button" disabled>Pause</button>
@@ -294,6 +299,15 @@
                 <div id="reader-page" class="reader-page">
                   <div class="book-gutter"></div>
                   <div class="page-grain"></div>
+                  <div id="reader-page-overlay" class="reader-page-overlay hidden">
+                    <div class="reader-page-overlay-card">
+                      <span class="stage-spinner" aria-hidden="true"></span>
+                      <div>
+                        <strong id="reader-page-overlay-title">Opening page...</strong>
+                        <p id="reader-page-overlay-text">Voxenor is loading this page.</p>
+                      </div>
+                    </div>
+                  </div>
                   <div class="reader-spread">
                     <section class="reader-sheet reader-sheet-left">
                       <div id="reader-content" class="reader-content empty-state" data-page-role="current">
