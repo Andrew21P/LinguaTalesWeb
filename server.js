@@ -272,6 +272,11 @@ app.post("/api/session/logout", (_req, res) => {
 });
 
 app.get("/api/meta", requireSession, (_req, res) => {
+  const effectivePreferences = getEffectiveUserPreferences();
+  if (effectivePreferences.selectedVoiceId !== userPreferences.selectedVoiceId) {
+    userPreferences = effectivePreferences;
+    void persistUserPreferences();
+  }
   res.json({
     ok: true,
     appName,
@@ -281,7 +286,7 @@ app.get("/api/meta", requireSession, (_req, res) => {
     fullySupportedLanguages: audiobookLanguageCatalog,
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
     profile: getPublicProfile(),
-    preferences: userPreferences,
+    preferences: effectivePreferences,
     localAccessUrls: getLocalAccessUrls(port),
     defaults: {
       exaggeration: defaultExaggeration,
@@ -380,6 +385,7 @@ app.post("/api/preferences", requireSession, async (req, res) => {
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    userPreferences = getEffectiveUserPreferences(userPreferences);
     await persistUserPreferences();
 
     return res.json({
@@ -2171,6 +2177,21 @@ function loadUserPreferences() {
   } catch {
     return fallback;
   }
+}
+
+function getEffectiveUserPreferences(preferences = userPreferences) {
+  const effectivePreferences = {
+    ...preferences,
+  };
+
+  if (
+    !narrationBackendSupportsCustomVoiceCloning(getDefaultNarrationEngine()) &&
+    effectivePreferences.selectedVoiceId !== "storybook"
+  ) {
+    effectivePreferences.selectedVoiceId = "storybook";
+  }
+
+  return effectivePreferences;
 }
 
 async function persistUserPreferences() {
