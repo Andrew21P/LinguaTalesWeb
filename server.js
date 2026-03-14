@@ -57,6 +57,7 @@ const upload = multer({
 const jobs = new Map();
 const voiceRegistry = new Map();
 const bookPageTasks = new Map();
+const bookPreparationQueues = new Map();
 let chatterboxWorker = null;
 let chatterboxWorkerStdoutRemainder = "";
 let chatterboxWorkerStderrRemainder = "";
@@ -2838,6 +2839,61 @@ function resolveLibraryAudioFilePath(bookId, audioUrl) {
   return path.join(getLibraryBookDir(bookId), "audio", path.basename(audioUrl));
 }
 
+async function getCachedLibraryAudioArtifacts(bookId) {
+  const audioDir = path.join(getLibraryBookDir(bookId), "audio");
+  const artifactMap = new Map();
+  const entries = await fsp.readdir(audioDir).catch(() => []);
+
+  for (const entry of entries) {
+    const match = /^page-(\d{4})-([a-z0-9_-]+)-(.+)\.wav$/iu.exec(entry);
+    if (!match) {
+      continue;
+    }
+
+    const [, rawPageNumber, rawEngine, rawVoiceId] = match;
+    const pageIndex = Math.max(0, Number(rawPageNumber) - 1);
+    const wavPath = path.join(audioDir, entry);
+    const metadataPath = wavPath.replace(/\.wav$/iu, ".json");
+    const audioInfo = await inspectAudioFile(wavPath);
+    if (!audioInfo.exists || audioInfo.duration <= 0) {
+      continue;
+    }
+
+    let metadata = null;
+    if (fs.existsSync(metadataPath)) {
+      try {
+        metadata = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+      } catch {
+        metadata = null;
+      }
+    }
+
+    artifactMap.set(pageIndex, {
+      audioUrl: `/library-assets/${bookId}/audio/${entry}`,
+      audioEngine: String(metadata?.engine || rawEngine || getDefaultNarrationEngine()),
+      audioVoiceId: String(rawVoiceId || "storybook"),
+      alignment: metadata || null,
+      preparedText: String(metadata?.preparedText || "").trim(),
+      duration: audioInfo.duration,
+    });
+  }
+
+  return artifactMap;
+}
+
+function enqueueBookPreparation(bookId, operation) {
+  const previousTail = bookPreparationQueues.get(bookId) || Promise.resolve();
+  const next = previousTail.catch(() => {}).then(operation);
+  const nextTail = next.catch(() => {});
+  bookPreparationQueues.set(bookId, nextTail);
+  void nextTail.finally(() => {
+    if (bookPreparationQueues.get(bookId) === nextTail) {
+      bookPreparationQueues.delete(bookId);
+    }
+  });
+  return next;
+}
+
 async function sanitizeLibraryBookState(book) {
   let changed = false;
   const needsTranslation = bookPageNeedsTranslation(book);
@@ -2846,6 +2902,7 @@ async function sanitizeLibraryBookState(book) {
   const targetIsPtPortugal = targetLanguage === "pt-pt";
   const generationLogPattern =
     /Generating segment \d+ of \d+\.|Loading Chatterbox models\.|Applying your uploaded voice sample\.|Combining narration chunks\.|Audiobook finished\./u;
+  const cachedAudioArtifacts = await getCachedLibraryAudioArtifacts(book.id);
 
   for (const [pageIndex, page] of (book.pages || []).entries()) {
     const pageTaskActive = [...bookPageTasks.keys()].some((taskKey) => taskKey.startsWith(`${book.id}:${pageIndex}:`));
@@ -2860,8 +2917,36 @@ async function sanitizeLibraryBookState(book) {
       changed = true;
     }
 
-    const audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
-    const audioExists = audioPath ? fs.existsSync(audioPath) : false;
+    let audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
+    let audioExists = audioPath ? fs.existsSync(audioPath) : false;
+    const cachedArtifact = cachedAudioArtifacts.get(pageIndex) || null;
+
+    if (!page.audioUrl && cachedArtifact) {
+      page.audioStatus = "ready";
+      page.audioUrl = cachedArtifact.audioUrl;
+      page.audioVoiceId = cachedArtifact.audioVoiceId;
+      page.audioEngine = cachedArtifact.audioEngine;
+      if (!page.alignment && cachedArtifact.alignment) {
+        page.alignment = cachedArtifact.alignment;
+      }
+      if (needsTranslation) {
+        if (!page.translatedText?.trim() && cachedArtifact.preparedText) {
+          page.translatedText = cachedArtifact.preparedText;
+        }
+        if (page.translatedText?.trim()) {
+          page.translationStatus = "ready";
+          page.translationProvider = page.translationProvider || "cached";
+          page.translationProviderTarget = targetProviderLanguage;
+        }
+      } else if (!page.translatedText?.trim() && page.originalText?.trim()) {
+        page.translatedText = page.originalText;
+        page.translationStatus = "source";
+      }
+      page.logs = [...(page.logs || []).slice(-5), "Recovered a cached audiobook page from disk."];
+      audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
+      audioExists = audioPath ? fs.existsSync(audioPath) : false;
+      changed = true;
+    }
 
     if (page.translationStatus === "running" && !page.translatedText?.trim() && !pageTaskActive) {
       page.translationStatus = needsTranslation ? "idle" : "source";
@@ -3419,7 +3504,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
     return bookPageTasks.get(taskKey);
   }
 
-  const task = (async () => {
+  const task = enqueueBookPreparation(bookId, async () => {
     let book = await readLibraryBook(bookId);
     if (!book) {
       throw new Error("That book was not found.");
@@ -3594,7 +3679,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
       }
       throw error;
     }
-  })();
+  });
 
   bookPageTasks.set(taskKey, task);
   try {
