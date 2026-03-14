@@ -2853,7 +2853,7 @@ function countWords(text) {
 
 function analyzeBookStructure(pages) {
   const chapterMarkers = [];
-  const maxScanPages = Math.min(pages.length, 40);
+  const maxScanPages = Math.min(pages.length, 160);
   let suggestedStartPageIndex = 0;
   let foundStart = false;
 
@@ -2913,7 +2913,7 @@ function analyzePageStructure(text) {
   const chapterHeadingLine = firstLines.find((line) => chapterPattern.test(line)) || "";
   const romanHeadingLine = firstLines.find((line) => /^(?:[IVXLCDM]+|[0-9]{1,3})[.)-]?$/u.test(line)) || "";
   const titleCandidateLines = firstLines.filter((line) => isBookHeadingLine(line)).slice(0, 2);
-  const titleCandidate = titleCandidateLines.join(" - ");
+  const titleCandidate = compactDetectedPageTitle(titleCandidateLines.join(" - "));
 
   let chapterScore = 0;
   if (chapterHeadingLine) {
@@ -2946,8 +2946,23 @@ function analyzePageStructure(text) {
   return {
     isFrontMatter,
     isChapterStart,
-    title: titleCandidate || chapterHeadingLine || "",
+    title: titleCandidate || compactDetectedPageTitle(chapterHeadingLine) || "",
   };
+}
+
+function compactDetectedPageTitle(title) {
+  const normalizedTitle = normalizeText(String(title || ""));
+  if (!normalizedTitle) {
+    return "";
+  }
+
+  const trimmedSentence = normalizedTitle.split(/(?<=[.!?])\s+/u)[0] || normalizedTitle;
+  const words = trimmedSentence.split(/\s+/u).filter(Boolean);
+  if (trimmedSentence.length <= 96 && words.length <= 14) {
+    return trimmedSentence;
+  }
+
+  return words.slice(0, 12).join(" ").replace(/[,:;.\-–—]+$/u, "");
 }
 
 function isBookHeadingLine(line) {
@@ -3073,7 +3088,14 @@ async function sanitizeLibraryBookState(book) {
     /Generating segment \d+ of \d+\.|Loading Chatterbox models\.|Applying your uploaded voice sample\.|Combining narration chunks\.|Audiobook finished\./u;
   const cachedAudioArtifacts = await getCachedLibraryAudioArtifacts(book.id);
 
-  if ((!Number.isInteger(book.suggestedStartPageIndex) || !Array.isArray(book.chapterMarkers)) && Array.isArray(book.pages)) {
+  if (
+    (
+      !Number.isInteger(book.suggestedStartPageIndex) ||
+      !Array.isArray(book.chapterMarkers) ||
+      book.chapterMarkers.length === 0
+    ) &&
+    Array.isArray(book.pages)
+  ) {
     const structure = analyzeBookStructure(book.pages);
     book.suggestedStartPageIndex = structure.suggestedStartPageIndex;
     book.chapterMarkers = structure.chapterMarkers;
@@ -3606,6 +3628,48 @@ function appendPageLog(page, message) {
   page.logs = [...(page.logs || []), message].slice(-8);
 }
 
+async function markBookPagePreparationStarted(book, pageIndex, voiceKey, engine, prefetch = false) {
+  const page = book.pages?.[pageIndex];
+  if (!page) {
+    return;
+  }
+
+  const needsTranslation = bookPageNeedsTranslation(book);
+  let changed = false;
+
+  if (!page.translatedText?.trim() && needsTranslation) {
+    if (page.translationStatus !== "running") {
+      page.translationStatus = "running";
+      changed = true;
+    }
+    if (!prefetch) {
+      appendPageLog(page, `Translating page ${pageIndex + 1} into ${book.audiobookLanguage.toUpperCase()}.`);
+      changed = true;
+    }
+  } else if (!pageHasReadyAudio(page, voiceKey, engine)) {
+    if (page.translationStatus !== "ready" && !needsTranslation) {
+      page.translationStatus = "ready";
+      changed = true;
+    }
+    if (page.audioStatus !== "running") {
+      page.audioStatus = "running";
+      changed = true;
+    }
+    if (page.audioEngine !== engine) {
+      page.audioEngine = engine;
+      changed = true;
+    }
+    if (!prefetch) {
+      appendPageLog(page, `Generating the audiobook page with ${getNarrationBackendLabel(engine)}.`);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await persistLibraryBook(book);
+  }
+}
+
 async function clearBookAudioCache(book) {
   const audioCacheDir = path.join(getLibraryBookDir(book.id), "audio");
   await fsp.rm(audioCacheDir, { recursive: true, force: true });
@@ -3701,6 +3765,7 @@ async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleI
   const taskKey = `${bookId}:${safePageIndex}:${buildAudioRenderKey(narrationRequest.engine, requestedVoiceKey)}`;
   const alreadyReady = pageHasReadyAudio(page, requestedVoiceKey, narrationRequest.engine);
   if (!alreadyReady && !bookPageTasks.has(taskKey)) {
+    await markBookPagePreparationStarted(book, safePageIndex, requestedVoiceKey, narrationRequest.engine, prefetch);
     void ensureLibraryBookPageReady({
       bookId,
       pageIndex: safePageIndex,
