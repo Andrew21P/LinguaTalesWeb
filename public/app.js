@@ -2,6 +2,7 @@ const state = {
   appName: "Voxenor",
   authenticated: false,
   profile: null,
+  modelInfo: null,
   preferences: null,
   localAccessUrls: [],
   libraryBooks: [],
@@ -191,17 +192,25 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   showAuthShell(false);
   const meta = await fetchJson("/api/meta");
   state.appName = meta.appName || "Voxenor";
+  state.modelInfo = meta.modelInfo || null;
   state.profile = profileOverride || meta.profile || null;
   state.preferences = meta.preferences || null;
   state.localAccessUrls = meta.localAccessUrls || [];
   state.voiceSamples = meta.voiceSamples || [];
   state.selectedVoice =
     state.voiceSamples.find((sample) => sample.id === meta.preferences?.selectedVoiceId) || state.voiceSamples[0] || null;
+  if (!meta.modelInfo?.supportsCustomVoiceCloning) {
+    state.selectedVoice = state.voiceSamples.find((sample) => sample.id === "storybook") || state.selectedVoice;
+  }
   state.defaultExaggeration = meta.defaults?.exaggeration ?? 0.52;
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderVoiceShelf();
   renderProfile(meta.profile, meta.localAccessUrls || []);
+  syncVoiceCaptureCapabilities();
+  if (!meta.modelInfo?.supportsCustomVoiceCloning && meta.preferences?.selectedVoiceId !== state.selectedVoice?.id) {
+    void persistPreferences();
+  }
   els.generateButton.textContent = "Generate audiobook";
 
   const booksPayload = await fetchJson("/api/books");
@@ -436,14 +445,19 @@ function renderVoiceShelf() {
     const button = document.createElement("button");
     button.type = "button";
     const isActive = state.selectedVoice?.id === sample.id;
+    const customVoiceUnavailable = !sample.builtIn && !state.modelInfo?.supportsCustomVoiceCloning;
     button.className = `voice-card${isActive ? " active" : ""}`;
     button.dataset.voiceId = sample.id;
+    button.disabled = customVoiceUnavailable;
     button.innerHTML = `
       <strong>${sample.name}</strong>
       <small>${sample.vibe}</small>
       <small>${languageLabels.get(sample.language) || sample.language.toUpperCase()}</small>
     `;
     button.addEventListener("click", () => {
+      if (customVoiceUnavailable) {
+        return;
+      }
       state.selectedVoice = sample;
       renderVoiceShelf();
       void persistPreferences();
@@ -451,7 +465,7 @@ function renderVoiceShelf() {
 
     shell.append(button);
 
-    if (!sample.builtIn) {
+    if (!sample.builtIn && state.modelInfo?.supportsCustomVoiceCloning) {
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "voice-delete-button";
@@ -916,6 +930,18 @@ function renderCurrentChapter() {
   });
 
   els.readerContent.append(article);
+}
+
+function syncVoiceCaptureCapabilities() {
+  const supportsCustomVoiceCloning = Boolean(state.modelInfo?.supportsCustomVoiceCloning);
+  els.recordToggle.disabled = !supportsCustomVoiceCloning;
+  els.uploadVoiceButton.disabled = !supportsCustomVoiceCloning;
+  els.voiceFile.disabled = !supportsCustomVoiceCloning;
+
+  if (!supportsCustomVoiceCloning) {
+    els.recordingStatus.textContent =
+      "Fast VPS mode is using the built-in PT-PT voice. Custom clone samples are disabled in this backend.";
+  }
 }
 
 function tokenizeParagraph(paragraph) {

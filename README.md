@@ -6,7 +6,7 @@ Voxenor is a local-first audiobook library: import a `PDF`, `EPUB`, `TXT`, or bo
 
 - Node.js + Express for the web server and API
 - Plain HTML, CSS, and vanilla JS for a low-friction frontend
-- Python helper scripts for OCR, extraction, language detection, and Chatterbox generation
+- Python helper scripts for OCR, extraction, language detection, and narration generation
 - `ffmpeg` for stitching and mastering generated audio chunks into one audiobook file
 
 ## Features
@@ -18,7 +18,7 @@ Voxenor is a local-first audiobook library: import a `PDF`, `EPUB`, `TXT`, or bo
 - Saved library with progress, per-page text, and resumable audio
 - In-browser voice recording and audio sample upload
 - Named custom voice samples with in-app delete controls
-- PT-PT-first audiobook generation pipeline with source-language detection, stronger free translation, and warm-model reuse for faster repeat generations
+- PT-PT-first audiobook generation pipeline with source-language detection, stronger free translation, and a CPU-fast Piper path for VPS-friendly repeat generations
 - Smoother playback highlighting driven by narration alignment metadata
 - Click-to-translate words and selection-based phrase translation
 - Audio mastering after synthesis for a cleaner, crisper final export
@@ -54,13 +54,21 @@ pip install -r scripts/requirements.txt
 Notes:
 
 - `scripts/requirements.txt` installs the parsing, OCR, and language-detection dependencies used by the extraction pipeline.
-- Real Chatterbox generation is optional and lives in [scripts/requirements-chatterbox.txt](/Users/andre/LinguaTales/scripts/requirements-chatterbox.txt).
+- Fast PT-PT Piper generation is included in `scripts/requirements.txt` for CPU-friendly hosting.
+- Real Chatterbox cloning is optional and lives in [scripts/requirements-chatterbox.txt](/Users/andre/LinguaTales/scripts/requirements-chatterbox.txt).
 - `chatterbox-tts` may download model weights the first time you generate audio.
-- CPU mode works, but a CUDA GPU is much better for long books.
+- The default `Piper` PT-PT path is CPU friendly and designed for normal VPS deployments.
+- Chatterbox CPU mode works, but it is much slower and is better treated as an optional studio path.
 - `ffmpeg` must be available on your `PATH`.
 - `tesseract` should be available on your `PATH` if you want OCR from photos or scanned pages.
 - Browser-recorded voice prompts are normalized to mono `wav` automatically before cloning so Chatterbox gets a stable prompt format.
 - If cleanup trims a recording too aggressively, Voxenor retries a safer prompt-normalization path and rejects truly unusable samples before generation.
+
+The default PT-PT Piper voice can be installed ahead of time with:
+
+```bash
+python scripts/install_piper_voice.py
+```
 
 Optional Chatterbox install:
 
@@ -85,6 +93,10 @@ Optional variables:
 - `LIBRETRANSLATE_URL` if you want to use your own LibreTranslate instance
 - `LIBRETRANSLATE_API_KEY` if your LibreTranslate instance requires one
 - `DEFAULT_TRANSLATION_PROVIDER=google-web` to use the stronger free web translator path by default
+- `TTS_BACKEND=piper` to keep Voxenor on the fast CPU-friendly PT-PT path
+- `TTS_BACKEND=auto` to use Piper for the built-in PT-PT voice and fall back to Chatterbox for custom clone samples when available
+- `TTS_BACKEND=chatterbox` to force the slower clone-oriented path everywhere
+- `PIPER_*` values if you want to pin a different Piper PT-PT voice model or retune its pacing/noise defaults
 - `DEFAULT_EXAGGERATION=0.52` if you want to tune the fixed narration expressiveness default
 - `DEFAULT_NARRATION_SPEED=0.95` if you want to tune the default rendered narration tempo
 - `DEFAULT_CFG_WEIGHT=0.28` if you want a slightly calmer multilingual Chatterbox guidance setting
@@ -105,9 +117,10 @@ Open `http://localhost:3000`.
 This app is intentionally simple to host:
 
 1. Provision a small Ubuntu server on Hetzner.
-2. Install Node.js 20+, Python 3.11+, `ffmpeg`, and optionally CUDA if you want faster Chatterbox generation.
+2. Install Node.js 20+, Python 3.11+, `ffmpeg`, and `tesseract`.
 3. Clone the repo, create a Python virtualenv, install `npm` and `pip` dependencies, then run `npm start`.
-4. Put Nginx in front of the Node process and use a `systemd` service for persistence.
+4. Run `python scripts/install_piper_voice.py` once so the PT-PT fast voice is cached on disk.
+5. Put Nginx in front of the Node process and use a `systemd` service for persistence.
 
 A starter `systemd` unit is included at [deploy/linguatales.service](/Users/andre/LinguaTales/deploy/linguatales.service).
 More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales/docs/hosting-hetzner.md).
@@ -129,8 +142,11 @@ More deployment notes live in [docs/hosting-hetzner.md](/Users/andre/LinguaTales
 - Image OCR and scanned-page OCR are handled locally with `tesseract`, `pytesseract`, and `PyMuPDF`.
 - OCR quality is best with straight pages, good lighting, and high-resolution photos.
 
-## Notes about Chatterbox
+## Notes about narration backends
 
-This project uses the official Python package interface from Resemble AI's Chatterbox repository. The generation script targets `ChatterboxMultilingualTTS`, which supports Portuguese as `pt`, and falls back to a macOS demo voice only when the host machine cannot install the official Chatterbox runtime.
+Voxenor now has two narration paths:
 
-Voxenor keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses a warm local Chatterbox worker to avoid repeated model loads, and runs a brighter mastering chain after synthesis for a cleaner final export.
+- `Piper PT-PT CPU fast path`: the default for normal VPS hosting. It is much faster on CPU and is the recommended way to serve PT-PT reading on Hetzner.
+- `Chatterbox multilingual clone path`: optional and much heavier. It supports clone prompts, but it is far slower on CPU-only machines and still uses generic `pt`, not a dedicated `pt-PT` model.
+
+Voxenor keeps expressiveness fixed in the product, renders the final narration slightly slower by default, reuses warm local workers to avoid repeated model loads, and runs a brighter mastering chain after synthesis for a cleaner final export.

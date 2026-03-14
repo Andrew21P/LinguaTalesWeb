@@ -33,8 +33,15 @@ const tmpDir = path.join(rootDir, "tmp");
 const jobsDir = path.join(dataDir, "jobs");
 const preferencesPath = path.join(dataDir, "preferences.json");
 const appName = "Voxenor";
+const configuredTtsBackend = normalizeTtsBackend(process.env.TTS_BACKEND || "piper");
+const piperVoiceId = String(process.env.PIPER_VOICE_ID || "pt_PT-tugão-medium").trim() || "pt_PT-tugão-medium";
+const piperDownloadDir = process.env.PIPER_DOWNLOAD_DIR || path.join(dataDir, "piper", "voices");
+const piperModelPath = process.env.PIPER_MODEL_PATH || path.join(piperDownloadDir, "pt_PT-tugao-medium.onnx");
+const piperLengthScale = Number(process.env.PIPER_LENGTH_SCALE || 1.04);
+const piperNoiseScale = Number(process.env.PIPER_NOISE_SCALE || 0.5);
+const piperNoiseWScale = Number(process.env.PIPER_NOISE_W_SCALE || 0.72);
 
-for (const dir of [dataDir, uploadsDir, voicesDir, audioDir, libraryDir, tmpDir, jobsDir]) {
+for (const dir of [dataDir, uploadsDir, voicesDir, audioDir, libraryDir, tmpDir, jobsDir, piperDownloadDir]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -53,6 +60,11 @@ let chatterboxWorkerStdoutRemainder = "";
 let chatterboxWorkerStderrRemainder = "";
 let chatterboxWorkerActiveJob = null;
 let chatterboxWorkerQueue = Promise.resolve();
+let piperWorker = null;
+let piperWorkerStdoutRemainder = "";
+let piperWorkerStderrRemainder = "";
+let piperWorkerActiveJob = null;
+let piperWorkerQueue = Promise.resolve();
 const appAccountEmail = (process.env.APP_ACCOUNT_EMAIL || "eleonorashatkovska@gmail.com").trim().toLowerCase();
 const appAccountPassword = process.env.APP_ACCOUNT_PASSWORD || "1234";
 const appAccountName = (process.env.APP_ACCOUNT_NAME || "Eleonora Shatkovska").trim();
@@ -87,7 +99,7 @@ const builtInVoiceSamples = [
     id: "storybook",
     name: "Lusophone Studio",
     language: "pt-pt",
-    vibe: "Portuguese (Portugal) narrator profile",
+    vibe: "Fast Portuguese (Portugal) studio narrator",
     builtIn: true,
   },
 ];
@@ -277,8 +289,10 @@ app.get("/api/meta", requireSession, (_req, res) => {
       cfgWeight: defaultCfgWeight,
     },
     modelInfo: {
-      active: "Chatterbox Multilingual",
-      note: "Portuguese (Portugal) narration is the fully supported output today, with OCR, source-language detection, and a warm local Chatterbox worker for faster repeat jobs.",
+      active: getNarrationBackendLabel(getDefaultNarrationEngine()),
+      note: getNarrationBackendNote(getDefaultNarrationEngine()),
+      backend: getDefaultNarrationEngine(),
+      supportsCustomVoiceCloning: narrationBackendSupportsCustomVoiceCloning(getDefaultNarrationEngine()),
     },
   });
 });
@@ -373,7 +387,13 @@ app.post("/api/preferences", requireSession, async (req, res) => {
       preferences: userPreferences,
     });
   } catch (error) {
-    return res.status(500).json({
+    const statusCode =
+      /support custom voice cloning|selected custom voice|voice sample was not found|voice sample is unusable/i.test(
+        error.message
+      )
+        ? 400
+        : 500;
+    return res.status(statusCode).json({
       ok: false,
       error: error.message,
     });
@@ -388,7 +408,13 @@ app.get("/api/books", requireSession, async (_req, res) => {
       books: books.map(toPublicBookSummary),
     });
   } catch (error) {
-    return res.status(500).json({
+    const statusCode =
+      /support custom voice cloning|selected custom voice|voice sample was not found|voice sample is unusable/i.test(
+        error.message
+      )
+        ? 400
+        : 500;
+    return res.status(statusCode).json({
       ok: false,
       error: error.message,
     });
@@ -431,7 +457,13 @@ app.delete("/api/books/:bookId", requireSession, async (req, res) => {
       deletedBookId: req.params.bookId,
     });
   } catch (error) {
-    return res.status(500).json({
+    const statusCode =
+      /support custom voice cloning|selected custom voice|voice sample was not found|voice sample is unusable/i.test(
+        error.message
+      )
+        ? 400
+        : 500;
+    return res.status(statusCode).json({
       ok: false,
       error: error.message,
     });
@@ -546,7 +578,13 @@ app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, async (r
       page: toPublicBookPage(prepared.book, prepared.pageIndex),
     });
   } catch (error) {
-    return res.status(500).json({
+    const statusCode =
+      /support custom voice cloning|selected custom voice|voice sample was not found|voice sample is unusable/i.test(
+        error.message
+      )
+        ? 400
+        : 500;
+    return res.status(statusCode).json({
       ok: false,
       error: error.message,
     });
@@ -666,6 +704,18 @@ app.post("/api/audiobook/generate", requireSession, async (req, res) => {
     });
   }
 
+  const narrationRequest = resolveNarrationRequest({
+    voiceSampleId: String(voiceSampleId || "storybook"),
+    voiceSamplePath: resolveVoiceSample(voiceSampleId)?.path || "",
+  });
+  if (voiceSampleId && voiceSampleId !== "storybook" && !narrationBackendSupportsCustomVoiceCloning(narrationRequest.engine)) {
+    return res.status(400).json({
+      ok: false,
+      error:
+        "This fast PT-PT VPS engine does not support custom voice cloning yet. Pick the built-in PT-PT voice, or switch TTS_BACKEND=chatterbox for slower clone experiments.",
+    });
+  }
+
   const resolvedVoiceSample = resolveVoiceSample(voiceSampleId)
     ? await ensureVoiceSamplePrompt(resolveVoiceSample(voiceSampleId))
     : null;
@@ -713,6 +763,7 @@ app.post("/api/audiobook/generate", requireSession, async (req, res) => {
     sourceLanguage: normalizeLanguageCode(sourceLanguage || "auto"),
     listenerLanguage: normalizeLanguageCode(listenerLanguage || "en"),
     language: normalizeLanguageCode(audiobookLanguage || "pt-pt"),
+    voiceSampleId: String(voiceSampleId || "storybook"),
     voiceSamplePath: resolvedVoiceSample?.path || "",
     exaggeration: Number(exaggeration ?? defaultExaggeration),
     narrationSpeed: Number(defaultNarrationSpeed),
@@ -799,12 +850,18 @@ async function runGenerationJob(config) {
     return;
   }
 
+  const narrationRequest = resolveNarrationRequest({
+    voiceSampleId: config.voiceSampleId,
+    voiceSamplePath: config.voiceSamplePath,
+  });
+
   job.status = "running";
   job.progress = 5;
-  job.logs.push("Preparing Chatterbox generation.");
+  job.logs.push(`Preparing ${getNarrationBackendLabel(narrationRequest.engine)} generation.`);
   job.sourceLanguage = config.sourceLanguage;
   job.listenerLanguage = config.listenerLanguage;
   job.audiobookLanguage = config.language;
+  job.narrationEngine = narrationRequest.engine;
   await persistJob(config.jobId, job);
 
   let effectiveInputTextPath = config.inputTextPath;
@@ -857,11 +914,12 @@ async function runGenerationJob(config) {
   job.readerLanguage = readerLanguage;
   await persistJob(config.jobId, job);
 
-  await runChatterboxGeneration({
+  await runNarrationGeneration({
     inputTextPath: effectiveInputTextPath,
     outputWavPath: config.outputWavPath,
     metadataPath: config.metadataPath,
     language: config.language,
+    voiceSampleId: config.voiceSampleId,
     voiceSamplePath: config.voiceSamplePath,
     exaggeration: config.exaggeration,
     narrationSpeed: config.narrationSpeed,
@@ -990,7 +1048,7 @@ async function runPythonStreaming(args, handlers = {}) {
   });
 }
 
-function buildGenerateAudiobookArgs(config) {
+function buildGenerateChatterboxArgs(config) {
   const args = [
     path.join(rootDir, "scripts", "generate_audiobook.py"),
     "--input",
@@ -1016,6 +1074,34 @@ function buildGenerateAudiobookArgs(config) {
   return args;
 }
 
+function buildGeneratePiperArgs(config) {
+  return [
+    path.join(rootDir, "scripts", "generate_audiobook_piper.py"),
+    "--input",
+    config.inputTextPath,
+    "--output",
+    config.outputWavPath,
+    "--metadata-output",
+    config.metadataPath,
+    "--language",
+    normalizeNarrationModelLanguage(config.language),
+    "--speed",
+    String(config.narrationSpeed),
+    "--voice-id",
+    piperVoiceId,
+    "--model-path",
+    piperModelPath,
+    "--download-dir",
+    piperDownloadDir,
+    "--length-scale",
+    String(piperLengthScale),
+    "--noise-scale",
+    String(piperNoiseScale),
+    "--noise-w-scale",
+    String(piperNoiseWScale),
+  ];
+}
+
 async function runChatterboxGeneration(config, handlers = {}) {
   try {
     await runWarmChatterboxJob(
@@ -1038,8 +1124,59 @@ async function runChatterboxGeneration(config, handlers = {}) {
     if (handlers.onLine) {
       await handlers.onLine("Warm Chatterbox worker restarted. Falling back to one-shot generation for this job.", "worker");
     }
-    await runPythonStreaming(buildGenerateAudiobookArgs(config), handlers);
+    await runPythonStreaming(buildGenerateChatterboxArgs(config), handlers);
   }
+}
+
+async function runPiperGeneration(config, handlers = {}) {
+  if (config.voiceSamplePath) {
+    throw new Error(
+      "Custom voice cloning is not supported in the fast CPU Piper path. Use the built-in PT-PT voice on VPS, or switch TTS_BACKEND=chatterbox for slow clone experiments."
+    );
+  }
+
+  try {
+    await runWarmPiperJob(
+      {
+        input: config.inputTextPath,
+        output: config.outputWavPath,
+        metadata_output: config.metadataPath,
+        language: normalizeNarrationModelLanguage(config.language),
+        voice_sample: "",
+        speed: config.narrationSpeed,
+        voice_id: piperVoiceId,
+        model_path: piperModelPath,
+        download_dir: piperDownloadDir,
+        length_scale: piperLengthScale,
+        noise_scale: piperNoiseScale,
+        noise_w_scale: piperNoiseWScale,
+      },
+      handlers
+    );
+  } catch (error) {
+    if (!String(error.code || "").startsWith("WORKER_")) {
+      throw error;
+    }
+    if (handlers.onLine) {
+      await handlers.onLine("Warm Piper worker restarted. Falling back to one-shot generation for this job.", "worker");
+    }
+    await runPythonStreaming(buildGeneratePiperArgs(config), handlers);
+  }
+}
+
+async function runNarrationGeneration(config, handlers = {}) {
+  const narrationRequest = resolveNarrationRequest({
+    voiceSampleId: config.voiceSampleId,
+    voiceSamplePath: config.voiceSamplePath,
+  });
+
+  if (narrationRequest.engine === "piper") {
+    await runPiperGeneration(config, handlers);
+    return narrationRequest;
+  }
+
+  await runChatterboxGeneration(config, handlers);
+  return narrationRequest;
 }
 
 function ensureWarmChatterboxWorker() {
@@ -1175,6 +1312,127 @@ async function runWarmChatterboxJob(payload, handlers = {}) {
   return queuedRun;
 }
 
+function ensureWarmPiperWorker() {
+  if (piperWorker && piperWorker.exitCode === null && !piperWorker.killed) {
+    return piperWorker;
+  }
+
+  piperWorkerStdoutRemainder = "";
+  piperWorkerStderrRemainder = "";
+  piperWorker = spawn(pythonBin, [path.join(rootDir, "scripts", "piper_worker.py")], {
+    cwd: rootDir,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  piperWorker.stdout.on("data", async (chunk) => {
+    piperWorkerStdoutRemainder = await consumeWarmPiperBuffer(piperWorkerStdoutRemainder + chunk.toString(), "stdout");
+  });
+
+  piperWorker.stderr.on("data", async (chunk) => {
+    piperWorkerStderrRemainder = await consumeWarmPiperBuffer(piperWorkerStderrRemainder + chunk.toString(), "stderr");
+  });
+
+  piperWorker.on("close", async (code) => {
+    const activeJob = piperWorkerActiveJob;
+    piperWorker = null;
+    piperWorkerActiveJob = null;
+
+    if (piperWorkerStdoutRemainder) {
+      await dispatchWarmPiperLine(piperWorkerStdoutRemainder.trim(), "stdout");
+      piperWorkerStdoutRemainder = "";
+    }
+    if (piperWorkerStderrRemainder) {
+      await dispatchWarmPiperLine(piperWorkerStderrRemainder.trim(), "stderr");
+      piperWorkerStderrRemainder = "";
+    }
+
+    if (activeJob) {
+      const error = new Error(`Piper worker exited unexpectedly with code ${code ?? "unknown"}.`);
+      error.code = "WORKER_EXITED";
+      activeJob.reject(error);
+    }
+  });
+
+  return piperWorker;
+}
+
+async function consumeWarmPiperBuffer(buffer, sourceName) {
+  const lines = buffer.split(/\r?\n/);
+  const remainder = lines.pop() || "";
+  for (const line of lines) {
+    await dispatchWarmPiperLine(line.trim(), sourceName);
+  }
+  return remainder;
+}
+
+async function dispatchWarmPiperLine(line, sourceName) {
+  if (!line) {
+    return;
+  }
+
+  const activeJob = piperWorkerActiveJob;
+  if (!activeJob) {
+    return;
+  }
+
+  if (sourceName === "stdout") {
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "progress") {
+        if (activeJob.handlers.onLine) {
+          await activeJob.handlers.onLine(`PROGRESS:${event.percent}|${event.message}`, "worker");
+        }
+        return;
+      }
+      if (event.type === "done") {
+        piperWorkerActiveJob = null;
+        activeJob.resolve();
+        return;
+      }
+      if (event.type === "error") {
+        const error = new Error(event.message || "Audiobook generation failed.");
+        error.code = "JOB_FAILED";
+        piperWorkerActiveJob = null;
+        activeJob.reject(error);
+        return;
+      }
+    } catch {
+      // Treat non-JSON stdout as a plain log line.
+    }
+  }
+
+  if (activeJob.handlers.onLine) {
+    await activeJob.handlers.onLine(line, sourceName);
+  }
+}
+
+async function runWarmPiperJob(payload, handlers = {}) {
+  const queuedRun = piperWorkerQueue.then(
+    () =>
+      new Promise((resolve, reject) => {
+        const worker = ensureWarmPiperWorker();
+        piperWorkerActiveJob = { resolve, reject, handlers };
+        worker.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+          if (!error) {
+            return;
+          }
+          const activeJob = piperWorkerActiveJob;
+          piperWorkerActiveJob = null;
+          const workerError = new Error(error.message);
+          workerError.code = "WORKER_WRITE_FAILED";
+          if (activeJob) {
+            activeJob.reject(workerError);
+          } else {
+            reject(workerError);
+          }
+        });
+      })
+  );
+
+  piperWorkerQueue = queuedRun.catch(() => {});
+  return queuedRun;
+}
+
 function normalizeText(text) {
   return text
     .replace(/\r\n/g, "\n")
@@ -1276,6 +1534,59 @@ function normalizeTranslationProviderLanguage(language) {
     return "pt";
   }
   return code;
+}
+
+function normalizeTtsBackend(backend) {
+  const normalized = String(backend || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("_", "-");
+  if (normalized === "chatterbox") {
+    return "chatterbox";
+  }
+  if (normalized === "auto") {
+    return "auto";
+  }
+  return "piper";
+}
+
+function getDefaultNarrationEngine() {
+  if (configuredTtsBackend === "auto") {
+    return "piper";
+  }
+  return configuredTtsBackend;
+}
+
+function narrationBackendSupportsCustomVoiceCloning(engine) {
+  return engine === "chatterbox";
+}
+
+function getNarrationBackendLabel(engine) {
+  if (engine === "piper") {
+    return "Piper PT-PT CPU fast path";
+  }
+  return "Chatterbox Multilingual clone path";
+}
+
+function getNarrationBackendNote(engine) {
+  if (engine === "piper") {
+    return "Portuguese (Portugal) narration is running on a CPU-friendly Piper voice for fast VPS generation. Custom voice cloning is not available in this fast path.";
+  }
+  return "Portuguese narration is using the heavier Chatterbox multilingual clone path. It sounds richer with custom prompts, but it is much slower on CPU-only machines.";
+}
+
+function resolveNarrationRequest({ voiceSampleId, voiceSamplePath }) {
+  const voiceKey = resolveBookVoiceKey(voiceSampleId);
+  if (configuredTtsBackend === "chatterbox") {
+    return { engine: "chatterbox", voiceKey };
+  }
+  if (configuredTtsBackend === "piper") {
+    return { engine: "piper", voiceKey };
+  }
+  if (voiceSamplePath || voiceKey !== "storybook") {
+    return { engine: "chatterbox", voiceKey };
+  }
+  return { engine: "piper", voiceKey };
 }
 
 function splitIntoChapters(text) {
@@ -2205,6 +2516,10 @@ async function sanitizeLibraryBookState(book) {
 
     const hasInconsistentAudio = needsTranslation && !page.translatedText?.trim() && page.audioUrl;
     const hasMissingAudioFile = Boolean(page.audioUrl) && !audioExists;
+    if (page.audioUrl && !page.audioEngine) {
+      page.audioEngine = "chatterbox";
+      changed = true;
+    }
     const needsPtPortugalAssetRefresh =
       normalizeLanguageCode(book.audiobookLanguage || "pt-pt") === "pt-pt" &&
       !pageTaskActive &&
@@ -2216,6 +2531,7 @@ async function sanitizeLibraryBookState(book) {
       page.audioStatus = "idle";
       page.audioUrl = "";
       page.audioVoiceId = "";
+      page.audioEngine = "";
       page.alignment = null;
       if (hasInconsistentAudio) {
         page.logs = [...(page.logs || []).slice(-6), "Reset an out-of-sync page so you can generate it again cleanly."];
@@ -2360,6 +2676,7 @@ function toPublicBook(book) {
       title: page.title || `Page ${index + 1}`,
       translationStatus: page.translationStatus || "idle",
       audioStatus: page.audioStatus || "idle",
+      audioEngine: page.audioEngine || "",
       ready: Boolean(page.audioUrl),
     })),
   };
@@ -2377,6 +2694,7 @@ function toPublicBookPage(book, pageIndex) {
     displayText,
     translationStatus: page.translationStatus || "idle",
     audioStatus: page.audioStatus || "idle",
+    audioEngine: page.audioEngine || "",
     audioUrl: page.audioUrl || "",
     alignment: page.alignment || null,
     logs: page.logs || [],
@@ -2460,6 +2778,7 @@ async function createLibraryBookFromRequest(req) {
     translationStatus: "idle",
     audioStatus: "idle",
     audioUrl: "",
+    audioEngine: "",
     alignment: null,
     logs: [],
   }));
@@ -2545,12 +2864,21 @@ function resolveBookVoiceKey(voiceSampleId) {
     : "storybook";
 }
 
+function buildAudioRenderKey(engine, voiceKey) {
+  return `${engine}:${voiceKey}`;
+}
+
 function sanitizeVoiceKey(voiceKey) {
   return String(voiceKey || "storybook").replace(/[^a-z0-9_-]+/gi, "-");
 }
 
-function pageHasReadyAudio(page, voiceKey) {
-  return page?.audioStatus === "ready" && page?.audioVoiceId === voiceKey && Boolean(page?.audioUrl);
+function pageHasReadyAudio(page, voiceKey, engine = getDefaultNarrationEngine()) {
+  return (
+    page?.audioStatus === "ready" &&
+    page?.audioVoiceId === voiceKey &&
+    page?.audioEngine === engine &&
+    Boolean(page?.audioUrl)
+  );
 }
 
 function appendPageLog(page, message) {
@@ -2564,6 +2892,7 @@ async function clearBookAudioCache(book) {
     page.audioStatus = "idle";
     page.audioUrl = "";
     page.audioVoiceId = "";
+    page.audioEngine = "";
     page.alignment = null;
     page.logs = [];
   }
@@ -2615,7 +2944,16 @@ async function deleteLibraryBookPage(bookId, pageIndex) {
 }
 
 async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleId, prefetch = false }) {
-  const requestedVoiceKey = resolveBookVoiceKey(voiceSampleId);
+  const narrationRequest = resolveNarrationRequest({
+    voiceSampleId,
+    voiceSamplePath: resolveVoiceSample(voiceSampleId)?.path || "",
+  });
+  const requestedVoiceKey = narrationRequest.voiceKey;
+  if (requestedVoiceKey !== "storybook" && !narrationBackendSupportsCustomVoiceCloning(narrationRequest.engine)) {
+    throw new Error(
+      "This fast PT-PT VPS engine does not support custom voice cloning yet. Pick the built-in PT-PT voice, or switch the backend back to Chatterbox for slower clone experiments."
+    );
+  }
   let book = await readLibraryBook(bookId);
   if (!book) {
     throw new Error("That book was not found.");
@@ -2627,8 +2965,8 @@ async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleI
     throw new Error("That page was not found.");
   }
 
-  const taskKey = `${bookId}:${safePageIndex}:${requestedVoiceKey}`;
-  const alreadyReady = pageHasReadyAudio(page, requestedVoiceKey);
+  const taskKey = `${bookId}:${safePageIndex}:${buildAudioRenderKey(narrationRequest.engine, requestedVoiceKey)}`;
+  const alreadyReady = pageHasReadyAudio(page, requestedVoiceKey, narrationRequest.engine);
   if (!alreadyReady && !bookPageTasks.has(taskKey)) {
     void ensureLibraryBookPageReady({
       bookId,
@@ -2661,8 +2999,12 @@ async function startLibraryBookPagePreparation({ bookId, pageIndex, voiceSampleI
 }
 
 async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, prefetch = false }) {
-  const voiceKey = resolveBookVoiceKey(voiceSampleId);
-  const taskKey = `${bookId}:${pageIndex}:${voiceKey}`;
+  const narrationRequest = resolveNarrationRequest({
+    voiceSampleId,
+    voiceSamplePath: resolveVoiceSample(voiceSampleId)?.path || "",
+  });
+  const voiceKey = narrationRequest.voiceKey;
+  const taskKey = `${bookId}:${pageIndex}:${buildAudioRenderKey(narrationRequest.engine, voiceKey)}`;
   if (bookPageTasks.has(taskKey)) {
     return bookPageTasks.get(taskKey);
   }
@@ -2725,9 +3067,10 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         }
       }
 
-      if (!pageHasReadyAudio(page, voiceKey)) {
+      if (!pageHasReadyAudio(page, voiceKey, narrationRequest.engine)) {
         page.audioStatus = "running";
-        appendPageLog(page, "Generating the audiobook page.");
+        page.audioEngine = narrationRequest.engine;
+        appendPageLog(page, `Generating the audiobook page with ${getNarrationBackendLabel(narrationRequest.engine)}.`);
         await persistLibraryBook(book);
 
         const bookDir = getLibraryBookDir(book.id);
@@ -2736,11 +3079,17 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         await fsp.mkdir(pagesDir, { recursive: true });
         await fsp.mkdir(audioCacheDir, { recursive: true });
 
-        const pagePrefix = `page-${String(safePageIndex + 1).padStart(4, "0")}-${sanitizeVoiceKey(voiceKey)}`;
+        const pagePrefix = `page-${String(safePageIndex + 1).padStart(4, "0")}-${sanitizeVoiceKey(narrationRequest.engine)}-${sanitizeVoiceKey(voiceKey)}`;
         const inputTextPath = path.join(pagesDir, `${pagePrefix}.txt`);
         const outputWavPath = path.join(audioCacheDir, `${pagePrefix}.wav`);
         const metadataPath = path.join(audioCacheDir, `${pagePrefix}.json`);
         await fsp.writeFile(inputTextPath, normalizeText(page.translatedText || page.originalText), "utf8");
+
+        if (voiceKey !== "storybook" && !narrationBackendSupportsCustomVoiceCloning(narrationRequest.engine)) {
+          throw new Error(
+            "This fast PT-PT VPS engine does not support custom voice cloning yet. Pick the built-in PT-PT voice, or switch the backend back to Chatterbox for slower clone experiments."
+          );
+        }
 
         const resolvedVoiceSample = resolveVoiceSample(voiceKey)
           ? await ensureVoiceSamplePrompt(resolveVoiceSample(voiceKey))
@@ -2749,12 +3098,13 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
           throw new Error("The selected custom voice is no longer available. Upload it again and retry.");
         }
 
-        await runChatterboxGeneration(
+        await runNarrationGeneration(
           {
             inputTextPath,
             outputWavPath,
             metadataPath,
             language: book.audiobookLanguage,
+            voiceSampleId: voiceKey,
             voiceSamplePath: resolvedVoiceSample?.path || "",
             exaggeration: defaultExaggeration,
             narrationSpeed: defaultNarrationSpeed,
@@ -2782,6 +3132,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         const completedPage = book.pages[safePageIndex];
         completedPage.audioStatus = "ready";
         completedPage.audioVoiceId = voiceKey;
+        completedPage.audioEngine = narrationRequest.engine;
         completedPage.audioUrl = `/library-assets/${book.id}/audio/${path.basename(outputWavPath)}`;
         if (fs.existsSync(metadataPath)) {
           completedPage.alignment = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
@@ -2822,6 +3173,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         }
         failedPage.audioUrl = "";
         failedPage.audioVoiceId = "";
+        failedPage.audioEngine = "";
         failedPage.alignment = null;
         appendPageLog(failedPage, `Generation failed: ${error.message}`);
         await persistLibraryBook(book).catch(() => {});

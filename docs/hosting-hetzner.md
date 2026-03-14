@@ -4,7 +4,7 @@
 
 - 1 small Ubuntu VM for the web app
 - 1 attached volume if you expect lots of uploaded books and generated audio
-- Optional GPU machine if you want faster Chatterbox generation for long books
+- No GPU required for the default PT-PT fast path
 
 ## Server packages
 
@@ -23,7 +23,15 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r scripts/requirements.txt
 cp .env.example .env
+python scripts/install_piper_voice.py
 npm start
+```
+
+Recommended `.env` on a normal CPU VPS:
+
+```bash
+TTS_BACKEND=piper
+PIPER_MODEL_PATH=data/piper/voices/pt_PT-tugao-medium.onnx
 ```
 
 ## Reverse proxy
@@ -54,3 +62,9 @@ LIBRETRANSLATE_API_KEY=
 ```
 
 The default Google web translation path is much stronger than the old MyMemory fallback for prose, but for a serious hosted deployment you should still prefer a self-hosted translator you control.
+
+## About voice cloning on CPU VPS
+
+The default PT-PT VPS path now uses `Piper`, which is dramatically faster on CPU than the old Chatterbox-only flow. This is the path you want for normal Hetzner hosting and concurrent readers.
+
+If you force `TTS_BACKEND=chatterbox`, custom voice cloning still works, but CPU latency rises sharply and concurrency drops. For a plain VPS, treat Chatterbox as an optional studio tool, not the default serving engine.
