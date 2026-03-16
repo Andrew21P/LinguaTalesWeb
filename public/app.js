@@ -9,6 +9,7 @@ const state = {
   piperVoices: [],
   savedWords: [],
   deletingBookIds: new Set(),
+  loadingBookId: "",
   selectedVoice: null,
   currentBook: null,
   currentPage: null,
@@ -96,8 +97,8 @@ const els = {
   generationProgress: document.querySelector("#generation-progress"),
   generationLog: document.querySelector("#generation-log"),
   playToggle: document.querySelector("#play-toggle"),
-  pauseToggle: document.querySelector("#pause-toggle"),
   restartToggle: document.querySelector("#restart-toggle"),
+  pageAdvance: document.querySelector("#page-advance"),
   pagePrev: document.querySelector("#page-prev"),
   pageNext: document.querySelector("#page-next"),
   readerStageStatus: document.querySelector("#reader-stage-status"),
@@ -108,9 +109,7 @@ const els = {
   readerPageOverlayTitle: document.querySelector("#reader-page-overlay-title"),
   readerPageOverlayText: document.querySelector("#reader-page-overlay-text"),
   readerContent: document.querySelector("#reader-content"),
-  readerContentNext: document.querySelector("#reader-content-next"),
   pageFooterNumber: document.querySelector("#page-footer-number"),
-  pageFooterNumberNext: document.querySelector("#page-footer-number-next"),
   bookAudio: document.querySelector("#book-audio"),
   selectionTranslation: document.querySelector("#selection-translation"),
   saveWordButton: document.querySelector("#save-word-button"),
@@ -118,6 +117,10 @@ const els = {
   savedWordsList: document.querySelector("#saved-words-list"),
   landingPage: document.querySelector("#landing-page"),
   authClose: document.querySelector("#auth-close"),
+  importToggle: document.querySelector("#import-toggle"),
+  importPanel: document.querySelector("#import-panel"),
+  importClose: document.querySelector("#import-close"),
+  topbarUserName: document.querySelector("#topbar-user-name"),
 };
 
 const languageLabels = new Map();
@@ -160,19 +163,35 @@ function attachEvents() {
   els.pagePrev.addEventListener("click", () => void openAdjacentPage(-1));
   els.pageNext.addEventListener("click", () => void openAdjacentPage(1));
   els.playToggle.addEventListener("click", () => void handlePlayToggle());
-  els.pauseToggle.addEventListener("click", () => els.bookAudio.pause());
   els.restartToggle.addEventListener("click", () => void handleRestartCurrentPage());
+  els.pageAdvance.addEventListener("click", () => void openAdjacentPage(1));
   els.saveWordButton.addEventListener("click", () => void saveCurrentLookup());
+
+  if (els.importToggle) {
+    els.importToggle.addEventListener("click", () => {
+      els.importPanel.classList.toggle("hidden");
+      if (!els.importPanel.classList.contains("hidden")) {
+        els.importPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  }
+  if (els.importClose) {
+    els.importClose.addEventListener("click", () => {
+      els.importPanel.classList.add("hidden");
+    });
+  }
 
   els.bookAudio.addEventListener("play", startPlaybackTracking);
   els.bookAudio.addEventListener("play", () => {
     state.autoplayPending = false;
+    syncTransportIcons(true);
     if (state.currentPage) {
       updateGenerationUiFromPage(state.currentPage);
     }
   });
   els.bookAudio.addEventListener("pause", () => {
     stopPlaybackTracking();
+    syncTransportIcons(false);
     if (state.currentPage) {
       updateGenerationUiFromPage(state.currentPage);
     }
@@ -215,8 +234,15 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   renderVoiceShelf(voiceSamples);
   void loadPiperVoiceCatalog();
 
+  els.bookLibrary.innerHTML = '<div class="library-loader"><span class="stage-spinner"></span><span>Loading your books...</span></div>';
+  els.bookLibrary.classList.add("loading-state");
+
+  // Start discover immediately — free books are pre-cached and should appear instantly
+  initDiscover();
+
   const booksPayload = await fetchJson("/api/books");
   state.libraryBooks = booksPayload.books || [];
+  els.bookLibrary.classList.remove("loading-state");
   renderLibraryBooks();
   renderSavedWords();
   renderLookupPanel();
@@ -357,10 +383,12 @@ function renderLanguageOptions(meta) {
   populateSelect(els.bookLanguage, sourceLanguages);
   populateSelect(els.listenerLanguage, listenerLanguages);
   populateSelect(els.audiobookLanguage, audiobookLanguages);
+  if (discoverEls.modalAudiobookLang) populateSelect(discoverEls.modalAudiobookLang, audiobookLanguages);
 
   els.bookLanguage.value = preferences.sourceLanguage || "auto";
   els.listenerLanguage.value = preferences.listenerLanguage || "en";
   els.audiobookLanguage.value = preferences.audiobookLanguage || "pt-pt";
+  if (discoverEls.modalAudiobookLang) discoverEls.modalAudiobookLang.value = preferences.audiobookLanguage || "pt-pt";
   updateLanguagePills();
 }
 
@@ -397,7 +425,9 @@ function renderProfile(profile, localAccessUrls) {
 
   const nativeLabels = (profile.nativeLanguages || []).map(getLanguageLabel).join(" + ");
   const fluentLabels = (profile.fluentLanguages || []).map(getLanguageLabel).join(", ");
-  els.profileName.textContent = profile.name || profile.email || "Reader";
+  const displayName = profile.name || profile.email || "Reader";
+  els.profileName.textContent = displayName;
+  if (els.topbarUserName) els.topbarUserName.textContent = displayName;
   els.profileDetails.textContent = `Native: ${nativeLabels || "Unknown"}. Fluent: ${fluentLabels || "Unknown"}. Learning: ${getLanguageLabel(profile.learningLanguage || "pt-pt")}.`;
   els.networkList.innerHTML = (localAccessUrls || [])
     .map((url) => `<span>${escapeHtml(url)}</span>`)
@@ -603,16 +633,18 @@ function renderLibraryBooks() {
 
   els.bookLibrary.classList.remove("empty-state");
 
-  state.libraryBooks.forEach((book) => {
+  state.libraryBooks.forEach((book, index) => {
     const percent = getBookProgressPercent(book);
     const isDeleting = state.deletingBookIds.has(book.id);
     const shell = document.createElement("div");
     shell.className = "book-card-shell";
+    shell.style.animationDelay = `${index * 60}ms`;
 
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `book-card${state.currentBook?.id === book.id ? " active" : ""}`;
-    button.disabled = isDeleting;
+    const isLoading = state.loadingBookId === book.id;
+    button.className = `book-card${state.currentBook?.id === book.id ? " active" : ""}${isLoading ? " is-loading" : ""}`;
+    button.disabled = isDeleting || isLoading;
     button.innerHTML = `
       <div class="book-cover">${renderCoverMarkup(book.coverUrl, book.title)}</div>
       <div class="book-card-copy">
@@ -647,7 +679,6 @@ function renderReaderShell() {
   const hasBook = Boolean(state.currentBook && state.currentPage);
   const totalPages = state.currentBook?.totalPages || state.currentBook?.pages?.length || 0;
   const currentPageNumber = hasBook ? state.currentPageIndex + 1 : 0;
-  const nextPageNumber = hasBook && currentPageNumber < totalPages ? currentPageNumber + 1 : 0;
   const percent = hasBook ? getBookProgressPercent(state.currentBook) : 0;
 
   els.readerBookCover.innerHTML = hasBook ? renderCoverMarkup(state.currentBook.coverUrl, state.currentBook.title) : "VX";
@@ -659,7 +690,6 @@ function renderReaderShell() {
   els.readerPageLabel.textContent = hasBook ? `Page ${currentPageNumber} of ${totalPages}` : "Page 0 of 0";
   els.readerProgressFill.style.width = `${percent}%`;
   els.pageFooterNumber.textContent = hasBook ? `Page ${currentPageNumber}` : "Page 0";
-  els.pageFooterNumberNext.textContent = nextPageNumber ? `Page ${nextPageNumber}` : "End";
   els.goToPageInput.value = hasBook ? String(currentPageNumber) : "";
   els.goToPageInput.max = String(totalPages || 1);
   els.pagePrev.disabled = !hasBook || state.currentPageIndex <= 0;
@@ -673,8 +703,6 @@ function renderReaderShell() {
   if (!hasBook) {
     els.readerContent.classList.add("empty-state");
     els.readerContent.textContent = "Open a book from your shelf to enter the reader.";
-    els.readerContentNext.classList.add("empty-state");
-    els.readerContentNext.textContent = "The next page will appear here.";
     setReaderStageStatus("Open a book from your shelf to start reading.", { loading: false });
     setTransportAvailability(false);
     updateGenerationUi({
@@ -686,12 +714,24 @@ function renderReaderShell() {
 }
 
 async function loadLibraryBook(bookId, pageIndex = 0, options = {}) {
-  const payload = await fetchJson(`/api/books/${bookId}`);
-  state.currentBook = payload.book;
-  upsertLibraryBook(payload.book);
+  state.loadingBookId = bookId;
   renderLibraryBooks();
   switchView("reader");
-  await openBookPage(pageIndex, options);
+  showReaderPageOverlay("Opening book...", "Loading your book from the shelf.");
+  setReaderStageStatus("Opening book...", { loading: true });
+  try {
+    const payload = await fetchJson(`/api/books/${bookId}`);
+    state.currentBook = payload.book;
+    upsertLibraryBook(payload.book);
+    renderLibraryBooks();
+    await openBookPage(pageIndex, options);
+  } catch (error) {
+    hideReaderPageOverlay();
+    setReaderStageStatus(error.message, { loading: false });
+  } finally {
+    state.loadingBookId = "";
+    renderLibraryBooks();
+  }
 }
 
 async function openBookPage(pageIndex, options = {}) {
@@ -700,21 +740,6 @@ async function openBookPage(pageIndex, options = {}) {
   }
 
   const safePageIndex = Math.max(0, Math.min((state.currentBook.pages || []).length - 1, pageIndex));
-  const canPromotePreview =
-    options.preferPreview !== false &&
-    state.previewPage &&
-    state.previewPage.index === safePageIndex &&
-    state.currentBook?.id;
-
-  if (canPromotePreview) {
-    state.autoplayPending = Boolean(options.autoplay);
-    applyBookPage(state.currentBook, state.previewPage, {
-      ...options,
-      skipAnimate: false,
-    });
-    await saveProgress();
-    return;
-  }
 
   const requestToken = state.pageOpenRequestToken + 1;
   state.pageOpenRequestToken = requestToken;
@@ -746,23 +771,14 @@ async function openBookPage(pageIndex, options = {}) {
 function applyBookPage(book, page, options = {}) {
   const preserveViewport = Boolean(options.preserveViewport);
   const preservePlaybackState = Boolean(options.preservePlaybackState);
-  const previousPreviewPage = state.previewPage;
   const previousBookId = state.currentBook?.id || "";
   const previousScrollTop = preserveViewport ? els.readerContent.scrollTop : 0;
   const previousAudioTime = preservePlaybackState ? Number(els.bookAudio.currentTime || 0) : 0;
   const shouldResumePlayback = preservePlaybackState && !els.bookAudio.paused && !els.bookAudio.ended;
   const sameAudioUrl = Boolean(page.audioUrl && state.currentAudioUrl && state.currentAudioUrl === page.audioUrl);
-  const preservedPreviewPage =
-    options.skipPreviewReload &&
-    previousBookId === book.id &&
-    previousPreviewPage &&
-    previousPreviewPage.index === page.index + 1
-      ? previousPreviewPage
-      : null;
 
   state.currentBook = book;
   state.currentPage = page;
-  state.previewPage = preservedPreviewPage;
   state.currentPageIndex = page.index;
   state.detectedBookLanguage = book.detectedLanguage || "auto";
   state.readerLanguage = page.translatedText ? book.audiobookLanguage || "pt-pt" : book.detectedLanguage || "auto";
@@ -774,12 +790,6 @@ function applyBookPage(book, page, options = {}) {
   syncBookSummaryPage(page);
   renderReaderShell();
   renderCurrentReaderContent(page.displayText || page.sourceText || "");
-  if (preservedPreviewPage) {
-    renderPreviewPageContent(preservedPreviewPage.displayText || preservedPreviewPage.sourceText || "");
-    els.pageFooterNumberNext.textContent = `Page ${preservedPreviewPage.index + 1}`;
-  } else {
-    renderPreviewPlaceholder();
-  }
   if (!options.skipAnimate) {
     animatePageTurn(options.turnDirection || "");
   }
@@ -790,6 +800,7 @@ function applyBookPage(book, page, options = {}) {
   if (page.audioUrl) {
     setTransportAvailability(true);
     if (!sameAudioUrl) {
+      state._pendingPlayRequest = false;
       els.bookAudio.src = page.audioUrl;
       const resumeTime = preservePlaybackState
         ? previousAudioTime
@@ -800,7 +811,8 @@ function applyBookPage(book, page, options = {}) {
         if (resumeTime > 0) {
           els.bookAudio.currentTime = Math.min(resumeTime, Math.max(0, (els.bookAudio.duration || resumeTime) - 0.2));
         }
-        if (shouldResumePlayback || options.autoplay) {
+        if (shouldResumePlayback || options.autoplay || state._pendingPlayRequest) {
+          state._pendingPlayRequest = false;
           void els.bookAudio.play().catch(() => {});
         }
       };
@@ -819,11 +831,13 @@ function applyBookPage(book, page, options = {}) {
     setTransportAvailability(false);
   }
 
-  updateGenerationUiFromPage(page);
+  if (!options.skipGenerationUiUpdate) {
+    updateGenerationUiFromPage(page);
+  }
   updateReaderStatusPill();
   applyLookupHighlight();
 
-  if (visiblePageNeedsPolling(page, { preview: false }) || visiblePageNeedsPolling(state.previewPage, { preview: true })) {
+  if (visiblePageNeedsPolling(page, { preview: false }) || state.activePreparationKey) {
     startPageStatusPolling(book.id, page.index);
   } else {
     stopPageStatusPolling();
@@ -834,9 +848,6 @@ function applyBookPage(book, page, options = {}) {
   }
 
   switchView("reader");
-  if (!options.skipPreviewReload) {
-    void loadPreviewPageForCurrentSpread();
-  }
   if (!options.skipAutoPrepare) {
     void maybeAutoPrepareCurrentPage();
   }
@@ -846,17 +857,6 @@ function renderCurrentReaderContent(text) {
   state.lookupTokens = [];
   state.currentTokens = renderReaderContentInto(els.readerContent, text, "current");
   state.totalWordCount = state.currentTokens.length;
-  applyLookupHighlight();
-}
-
-function renderPreviewPageContent(text) {
-  renderReaderContentInto(els.readerContentNext, text, "next");
-  applyLookupHighlight();
-}
-
-function renderPreviewPlaceholder(message = "The next page will appear here.") {
-  state.previewPage = null;
-  renderReaderContentInto(els.readerContentNext, "", "next", message);
   applyLookupHighlight();
 }
 
@@ -900,7 +900,7 @@ function renderReaderContentInto(container, text, pageRole, emptyMessage = "This
           event.preventDefault();
           event.stopPropagation();
           clearReaderSelection();
-          void handleWordLookup(token.value, pageRole);
+          void handleWordLookup(token.value, pageRole, event);
         });
         tokensForRole.push(span);
         state.lookupTokens.push(span);
@@ -925,51 +925,7 @@ function clearReaderSelection() {
   state.lastSelectionText = "";
 }
 
-async function loadPreviewPageForCurrentSpread() {
-  const book = state.currentBook;
-  if (!book?.pages?.length) {
-    renderPreviewPlaceholder();
-    return;
-  }
-
-  const nextPageIndex = state.currentPageIndex + 1;
-  if (nextPageIndex >= book.pages.length) {
-    renderPreviewPlaceholder("You are at the end of this book.");
-    return;
-  }
-
-  const requestToken = state.previewRequestToken + 1;
-  state.previewRequestToken = requestToken;
-  renderPreviewPlaceholder("Loading the next page...");
-
-  try {
-    const payload = await fetchJson(`/api/books/${book.id}/pages/${nextPageIndex}`);
-    if (
-      requestToken !== state.previewRequestToken ||
-      state.currentBook?.id !== book.id ||
-      state.currentPageIndex + 1 !== nextPageIndex
-    ) {
-      return;
-    }
-
-    state.previewPage = payload.page;
-    renderPreviewPageContent(payload.page.displayText || payload.page.sourceText || "");
-    els.pageFooterNumberNext.textContent = `Page ${payload.page.index + 1}`;
-    if (visiblePageNeedsPolling(state.currentPage, { preview: false }) || visiblePageNeedsPolling(payload.page, { preview: true })) {
-      startPageStatusPolling(book.id, state.currentPageIndex);
-    }
-  } catch {
-    if (requestToken !== state.previewRequestToken) {
-      return;
-    }
-    renderPreviewPlaceholder("The next page preview could not be loaded yet.");
-  }
-}
-
 function getPageTextByRole(pageRole) {
-  if (pageRole === "next") {
-    return state.previewPage?.displayText || state.previewPage?.sourceText || "";
-  }
   return state.currentPage?.displayText || state.currentPage?.sourceText || "";
 }
 
@@ -983,7 +939,7 @@ async function maybeAutoPrepareCurrentPage() {
     return;
   }
 
-  await handlePrepareCurrentPage({ silent: true });
+  await handlePrepareCurrentPage({ silent: false });
 }
 
 function tokenizeParagraph(paragraph) {
@@ -1062,7 +1018,11 @@ async function handleDeleteBook(bookId) {
     return;
   }
 
-  const confirmed = window.confirm(`Delete "${book.title}" from your library?`);
+  const confirmed = await showConfirmDialog({
+    title: "Delete this book?",
+    message: `"${book.title}" will be permanently removed from your library, including all translations and generated audio.`,
+    okLabel: "Delete",
+  });
   if (!confirmed) {
     return;
   }
@@ -1082,7 +1042,6 @@ async function handleDeleteBook(bookId) {
     if (state.currentBook?.id === bookId) {
       state.currentBook = null;
       state.currentPage = null;
-      state.previewPage = null;
       state.currentPageIndex = 0;
       state.currentTokens = [];
       state.lookupTokens = [];
@@ -1137,6 +1096,11 @@ async function openAdjacentPage(direction) {
   if (!state.currentBook?.pages?.length) {
     return;
   }
+  if (state._navCooldown) {
+    return;
+  }
+  state._navCooldown = true;
+  setTimeout(() => { state._navCooldown = false; }, 350);
   const targetIndex = Math.max(0, Math.min(state.currentBook.pages.length - 1, state.currentPageIndex + direction));
   if (targetIndex === state.currentPageIndex) {
     return;
@@ -1189,16 +1153,19 @@ async function handlePrepareCurrentPage(options = {}) {
 
     mergeBookSummary(payload.book);
     renderLibraryBooks();
-    const stillCurrent = state.currentBook?.id === requestedBookId && state.currentPageIndex === requestedPageIndex;
-    if (stillCurrent) {
-      applyBookPage(state.currentBook || payload.book, payload.page, {
-        autoplay: Boolean(options.autoplay),
-      });
-    }
 
     const generationStillRunning =
       !payload.page.audioUrl &&
       (payload.started || payload.page.translationStatus === "running" || payload.page.audioStatus === "running");
+
+    const stillCurrent = state.currentBook?.id === requestedBookId && state.currentPageIndex === requestedPageIndex;
+    if (stillCurrent) {
+      applyBookPage(state.currentBook || payload.book, payload.page, {
+        autoplay: Boolean(options.autoplay),
+        skipGenerationUiUpdate: generationStillRunning,
+        skipAutoPrepare: true,
+      });
+    }
 
     if (!generationStillRunning) {
       stopPageStatusPolling();
@@ -1468,29 +1435,12 @@ function startPageStatusPolling(bookId, pageIndex) {
           preserveViewport: true,
           preservePlaybackState: true,
           skipAnimate: true,
-          skipPreviewReload: true,
           skipAutoPrepare: true,
         });
       }
 
-      const visiblePreviewIndex =
-        state.currentBook?.id === bookId && state.previewPage?.index === state.currentPageIndex + 1
-          ? state.previewPage.index
-          : -1;
-
-      if (visiblePreviewIndex >= 0) {
-        const previewPayload = await fetchJson(`/api/books/${bookId}/pages/${visiblePreviewIndex}`);
-        if (state.currentBook?.id === bookId && state.currentPageIndex + 1 === visiblePreviewIndex) {
-          state.previewPage = previewPayload.page;
-          renderPreviewPageContent(previewPayload.page.displayText || previewPayload.page.sourceText || "");
-          els.pageFooterNumberNext.textContent = `Page ${previewPayload.page.index + 1}`;
-        }
-      }
-
-      const stillNeedsPolling =
-        visiblePageNeedsPolling(state.currentPage, { preview: false }) ||
-        visiblePageNeedsPolling(state.previewPage, { preview: true });
-      if (!stillNeedsPolling) {
+      const stillNeedsPolling = visiblePageNeedsPolling(state.currentPage, { preview: false });
+      if (!stillNeedsPolling && !state.activePreparationKey) {
         stopPageStatusPolling();
       }
     } catch {
@@ -1538,6 +1488,23 @@ async function handlePlayToggle() {
     return;
   }
 
+  if (!els.bookAudio.paused) {
+    els.bookAudio.pause();
+    return;
+  }
+
+  // If metadata hasn't loaded yet, wait for it then play
+  if (els.bookAudio.readyState < 1) {
+    state._pendingPlayRequest = true;
+    els.bookAudio.addEventListener("loadedmetadata", () => {
+      if (state._pendingPlayRequest) {
+        state._pendingPlayRequest = false;
+        void els.bookAudio.play().catch(() => {});
+      }
+    }, { once: true });
+    return;
+  }
+
   await els.bookAudio.play().catch(() => {});
 }
 
@@ -1574,8 +1541,18 @@ async function handleAudioEnded() {
 
 function setTransportAvailability(isReady) {
   els.playToggle.disabled = !isReady;
-  els.pauseToggle.disabled = !isReady;
   els.restartToggle.disabled = !isReady;
+  els.pageAdvance.disabled = !state.currentBook?.pages?.length || state.currentPageIndex >= (state.currentBook.pages.length - 1);
+}
+
+function syncTransportIcons(playing) {
+  const playIcon = els.playToggle.querySelector(".icon-play");
+  const pauseIcon = els.playToggle.querySelector(".icon-pause");
+  if (playIcon && pauseIcon) {
+    playIcon.classList.toggle("hidden", playing);
+    pauseIcon.classList.toggle("hidden", !playing);
+  }
+  els.playToggle.setAttribute("aria-label", playing ? "Pause" : "Play");
 }
 
 function startPlaybackTracking() {
@@ -1699,7 +1676,7 @@ function animatePageTurn(direction) {
     els.readerPage.classList.add(className);
     state.readerTurnTimer = window.setTimeout(() => {
       els.readerPage.classList.remove(className);
-    }, 760);
+    }, 440);
   });
 }
 
@@ -1770,22 +1747,77 @@ function getReaderRoleForNode(node) {
   return container?.dataset?.pageRole || "";
 }
 
-async function handleWordLookup(word, pageRole = "current") {
+async function handleWordLookup(word, pageRole = "current", clickEvent = null) {
   state.activeLookupSourceNormalized = normalizeComparableText(word);
   applyLookupHighlight();
+  if (clickEvent) showWordTooltip(clickEvent, word, null);
   try {
-    setLookupPending(word);
     const payload = await translate(word);
+    if (clickEvent) {
+      showWordTooltip(clickEvent, word, payload.translatedText);
+    }
     setLookupValue({
       source: word,
       translatedText: payload.translatedText,
       context: buildContextSnippet(word, pageRole),
       sourceLanguage: state.readerLanguage,
       targetLanguage: els.listenerLanguage.value,
-      pageIndex: pageRole === "next" ? state.previewPage?.index ?? state.currentPageIndex : state.currentPageIndex,
+      pageIndex: state.currentPageIndex,
     });
   } catch (error) {
+    if (clickEvent) hideWordTooltip();
     setLookupError(error.message, word);
+  }
+}
+
+function showWordTooltip(event, word, translation) {
+  let tip = document.getElementById("word-tooltip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "word-tooltip";
+    tip.className = "word-tooltip";
+    document.body.appendChild(tip);
+  }
+  if (translation) {
+    tip.innerHTML = `<span class="word-tooltip-source">${escapeHtml(word)}</span><span class="word-tooltip-sep">→</span><span class="word-tooltip-result">${escapeHtml(translation)}</span>`;
+  } else {
+    tip.innerHTML = `<span class="word-tooltip-source">${escapeHtml(word)}</span><span class="word-tooltip-sep">…</span>`;
+  }
+  // Make visible off-screen first to measure, then position
+  tip.style.left = "-9999px";
+  tip.style.top = "-9999px";
+  tip.classList.add("visible");
+
+  const rect = event.target instanceof HTMLElement ? event.target.getBoundingClientRect() : { left: event.clientX, top: event.clientY, right: event.clientX, bottom: event.clientY, width: 0, height: 0 };
+  const tipWidth = tip.offsetWidth;
+  const tipHeight = tip.offsetHeight;
+  let left = rect.left + rect.width / 2 - tipWidth / 2;
+  let top = rect.top - tipHeight - 8;
+  if (top < 4) top = rect.bottom + 8;
+  if (left < 4) left = 4;
+  if (left + tipWidth > window.innerWidth - 4) left = window.innerWidth - tipWidth - 4;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+
+  clearTimeout(tip._hideTimer);
+  tip._hideTimer = setTimeout(hideWordTooltip, 4000);
+
+  document.addEventListener("click", _wordTooltipOutsideClick, true);
+}
+
+function hideWordTooltip() {
+  const tip = document.getElementById("word-tooltip");
+  if (tip) {
+    tip.classList.remove("visible");
+    clearTimeout(tip._hideTimer);
+  }
+  document.removeEventListener("click", _wordTooltipOutsideClick, true);
+}
+
+function _wordTooltipOutsideClick(e) {
+  const tip = document.getElementById("word-tooltip");
+  if (tip && !tip.contains(e.target) && !e.target.closest(".token")) {
+    hideWordTooltip();
   }
 }
 
@@ -1801,7 +1833,7 @@ async function handleSelectionLookup(text, pageRole = "current") {
       context: buildContextSnippet(text, pageRole),
       sourceLanguage: state.readerLanguage,
       targetLanguage: els.listenerLanguage.value,
-      pageIndex: pageRole === "next" ? state.previewPage?.index ?? state.currentPageIndex : state.currentPageIndex,
+      pageIndex: state.currentPageIndex,
     });
   } catch (error) {
     setLookupError(error.message, text);
@@ -2066,6 +2098,251 @@ function truncate(value, maxLength) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   PROJECT GUTENBERG DISCOVER
+   ═══════════════════════════════════════════════════════════ */
+
+const discoverEls = {
+  grid: document.querySelector("#discover-grid"),
+  search: document.querySelector("#discover-search"),
+  modal: document.querySelector("#discover-modal"),
+  modalClose: document.querySelector("#discover-modal-close"),
+  modalBackdrop: document.querySelector(".discover-modal-backdrop"),
+  modalCover: document.querySelector("#discover-modal-cover"),
+  modalTitle: document.querySelector("#discover-modal-title"),
+  modalAuthor: document.querySelector("#discover-modal-author"),
+  modalYear: document.querySelector("#discover-modal-year"),
+  modalSubjects: document.querySelector("#discover-modal-subjects"),
+  modalDesc: document.querySelector("#discover-modal-desc"),
+  modalAdd: document.querySelector("#discover-modal-add"),
+  modalLink: document.querySelector("#discover-modal-link"),
+  modalAudiobookLang: document.querySelector("#discover-audiobook-language"),
+};
+
+let discoverSearchTimeout = null;
+let activeDiscoverBook = null;
+let discoverPaging = { mode: "category", topic: "popular", query: "", page: 1, hasMore: false, loading: false };
+
+function initDiscover() {
+  document.querySelectorAll(".discover-cat").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".discover-cat").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (discoverEls.search) discoverEls.search.value = "";
+      discoverPaging = { mode: "category", topic: btn.dataset.subject, query: "", page: 1, hasMore: false, loading: false };
+      void loadDiscoverBooks(btn.dataset.subject, 1);
+    });
+  });
+
+  if (discoverEls.search) {
+    discoverEls.search.addEventListener("input", () => {
+      clearTimeout(discoverSearchTimeout);
+      const query = discoverEls.search.value.trim();
+      if (!query) {
+        const activeCat = document.querySelector(".discover-cat.active");
+        void loadDiscoverBooks(activeCat?.dataset.subject || "popular");
+        return;
+      }
+      discoverSearchTimeout = setTimeout(() => {
+        document.querySelectorAll(".discover-cat").forEach((b) => b.classList.remove("active"));
+        void searchDiscoverBooks(query);
+      }, 500);
+    });
+  }
+
+  if (discoverEls.modalClose) discoverEls.modalClose.addEventListener("click", closeDiscoverModal);
+  if (discoverEls.modalBackdrop) discoverEls.modalBackdrop.addEventListener("click", closeDiscoverModal);
+  if (discoverEls.modalAdd) discoverEls.modalAdd.addEventListener("click", handleAddDiscoverBook);
+
+  void loadDiscoverBooks("popular", 1);
+}
+
+async function loadDiscoverBooks(topic, page = 1) {
+  const append = page > 1;
+  if (!append) {
+    var loadingTimer = setTimeout(showDiscoverLoading, 200);
+  }
+  discoverPaging.loading = true;
+  try {
+    const res = await fetch(`/api/discover/${encodeURIComponent(topic)}?page=${page}`);
+    const data = await res.json();
+    if (!append) clearTimeout(loadingTimer);
+    if (data.ok) {
+      discoverPaging.page = data.page;
+      discoverPaging.hasMore = data.hasMore;
+      renderDiscoverGrid(data.books, append);
+    } else if (!append) {
+      discoverEls.grid.innerHTML = '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Could not load books. Try again later.</p>';
+    }
+  } catch {
+    if (!append) {
+      clearTimeout(loadingTimer);
+      discoverEls.grid.innerHTML = '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Could not load books. Try again later.</p>';
+    }
+  } finally {
+    discoverPaging.loading = false;
+  }
+}
+
+async function searchDiscoverBooks(query, page = 1) {
+  const append = page > 1;
+  if (!append) {
+    var loadingTimer = setTimeout(showDiscoverLoading, 200);
+  }
+  discoverPaging.loading = true;
+  try {
+    const res = await fetch(`/api/discover-search?q=${encodeURIComponent(query)}&page=${page}`);
+    const data = await res.json();
+    if (!append) clearTimeout(loadingTimer);
+    if (data.ok) {
+      discoverPaging.page = data.page;
+      discoverPaging.hasMore = data.hasMore;
+      renderDiscoverGrid(data.books, append);
+    } else if (!append) {
+      discoverEls.grid.innerHTML = '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Search failed. Try again later.</p>';
+    }
+  } catch {
+    if (!append) {
+      clearTimeout(loadingTimer);
+      discoverEls.grid.innerHTML = '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Search failed. Try again later.</p>';
+    }
+  } finally {
+    discoverPaging.loading = false;
+  }
+}
+
+function showDiscoverLoading() {
+  discoverEls.grid.classList.add("loading-state");
+  discoverEls.grid.innerHTML = '<div class="library-loader"><span class="stage-spinner"></span><span>Fetching books from Project Gutenberg...</span></div>';
+}
+
+function renderDiscoverGrid(books, append = false) {
+  discoverEls.grid.classList.remove("loading-state");
+
+  // Remove existing load-more button
+  const existingBtn = discoverEls.grid.querySelector(".discover-load-more");
+  if (existingBtn) existingBtn.remove();
+
+  if (!append) {
+    discoverEls.grid.innerHTML = "";
+  }
+
+  if (!books.length && !append) {
+    discoverEls.grid.innerHTML = '<p style="text-align:center;color:var(--muted);grid-column:1/-1;padding:2rem 0">No books found. Try a different search.</p>';
+    return;
+  }
+
+  const existingCount = append ? discoverEls.grid.querySelectorAll(".discover-book").length : 0;
+
+  books.forEach((book, i) => {
+    const el = document.createElement("div");
+    el.className = "discover-book";
+    el.style.animationDelay = `${(existingCount + i) * 40}ms`;
+
+    const coverHtml = book.coverUrl
+      ? `<img src="${escapeHtml(book.coverUrl)}" alt="${escapeHtml(book.title)}" loading="lazy" />`
+      : `<div class="discover-cover-fallback">${escapeHtml(book.title)}</div>`;
+
+    el.innerHTML = `
+      <div class="discover-book-cover">${coverHtml}</div>
+      <div class="discover-book-title">${escapeHtml(book.title)}</div>
+      <div class="discover-book-author">${escapeHtml(book.authors.join(", ") || "Unknown author")}</div>
+    `;
+    el.addEventListener("click", () => openDiscoverModal(book));
+    discoverEls.grid.append(el);
+  });
+
+  // Add "Load more" button if there are more pages
+  if (discoverPaging.hasMore) {
+    const loadMoreEl = document.createElement("div");
+    loadMoreEl.className = "discover-load-more";
+    loadMoreEl.innerHTML = '<button class="discover-load-more-btn">Load more books</button>';
+    loadMoreEl.querySelector("button").addEventListener("click", handleDiscoverLoadMore);
+    discoverEls.grid.append(loadMoreEl);
+  }
+}
+
+function handleDiscoverLoadMore() {
+  if (discoverPaging.loading) return;
+  const nextPage = discoverPaging.page + 1;
+  const btn = discoverEls.grid.querySelector(".discover-load-more-btn");
+  if (btn) {
+    btn.textContent = "Loading...";
+    btn.disabled = true;
+  }
+  if (discoverPaging.mode === "search") {
+    void searchDiscoverBooks(discoverPaging.query, nextPage);
+  } else {
+    void loadDiscoverBooks(discoverPaging.topic, nextPage);
+  }
+}
+
+function openDiscoverModal(book) {
+  activeDiscoverBook = book;
+
+  discoverEls.modalCover.innerHTML = book.coverUrl
+    ? `<img src="${escapeHtml(book.coverUrl)}" alt="${escapeHtml(book.title)}" />`
+    : `<div class="discover-cover-fallback" style="font-size:1.2rem">${escapeHtml(book.title)}</div>`;
+
+  discoverEls.modalTitle.textContent = book.title;
+  discoverEls.modalAuthor.textContent = book.authors.join(", ") || "Unknown author";
+  discoverEls.modalYear.textContent = "";
+  discoverEls.modalSubjects.textContent = book.subjects.length ? book.subjects.join(" · ") : "";
+  discoverEls.modalDesc.textContent = book.summary || "No description available.";
+  discoverEls.modalLink.href = `https://www.gutenberg.org/ebooks/${book.id}`;
+
+  discoverEls.modal.classList.remove("hidden");
+  discoverEls.modal.setAttribute("aria-hidden", "false");
+}
+
+function closeDiscoverModal() {
+  discoverEls.modal.classList.add("hidden");
+  discoverEls.modal.setAttribute("aria-hidden", "true");
+  activeDiscoverBook = null;
+}
+
+async function handleAddDiscoverBook() {
+  if (!activeDiscoverBook) return;
+  const book = activeDiscoverBook;
+  const btn = discoverEls.modalAdd;
+  if (!book.textUrl) {
+    btn.textContent = "No text available for this book";
+    setTimeout(() => {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg> Add to my library';
+    }, 1500);
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Importing...";
+
+  try {
+    const payload = await fetchJson("/api/books/import-gutenberg", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: book.title,
+        textUrl: book.textUrl,
+        coverUrl: book.coverUrl || "",
+        audiobookLanguage: discoverEls.modalAudiobookLang?.value || els.audiobookLanguage.value,
+        listenerLanguage: els.listenerLanguage.value,
+      }),
+    });
+    upsertLibraryBook(payload.book);
+    state.currentBook = payload.book;
+    state.currentPageIndex = payload.page?.index || 0;
+    renderLibraryBooks();
+    closeDiscoverModal();
+    await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
+  } catch (error) {
+    btn.textContent = error.message || "Failed — try again";
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg> Add to my library';
+    }, 1200);
+  }
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -2073,6 +2350,46 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function showConfirmDialog({ title = "Are you sure?", message = "", okLabel = "Confirm" } = {}) {
+  return new Promise((resolve) => {
+    const dialog = document.querySelector("#confirm-dialog");
+    const backdrop = dialog.querySelector(".confirm-dialog-backdrop");
+    const titleEl = document.querySelector("#confirm-dialog-title");
+    const messageEl = document.querySelector("#confirm-dialog-message");
+    const cancelBtn = document.querySelector("#confirm-dialog-cancel");
+    const okBtn = document.querySelector("#confirm-dialog-ok");
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    okBtn.textContent = okLabel;
+
+    dialog.classList.remove("hidden");
+    dialog.setAttribute("aria-hidden", "false");
+    cancelBtn.focus();
+
+    function cleanup(result) {
+      dialog.classList.add("hidden");
+      dialog.setAttribute("aria-hidden", "true");
+      backdrop.removeEventListener("click", onCancel);
+      cancelBtn.removeEventListener("click", onCancel);
+      okBtn.removeEventListener("click", onOk);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    }
+
+    function onCancel() { cleanup(false); }
+    function onOk() { cleanup(true); }
+    function onKey(e) {
+      if (e.key === "Escape") { cleanup(false); }
+    }
+
+    backdrop.addEventListener("click", onCancel);
+    cancelBtn.addEventListener("click", onCancel);
+    okBtn.addEventListener("click", onOk);
+    document.addEventListener("keydown", onKey);
+  });
 }
 
 async function fetchJson(url, options) {

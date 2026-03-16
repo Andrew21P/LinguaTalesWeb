@@ -23,7 +23,7 @@ def load_runtime(model_path: str, voice_id: str, download_dir: str):
     global VOICE, SYNTHESIS_CONFIG, MODEL_PATH, VOICE_ID
 
     if VOICE is not None and MODEL_PATH == model_path and VOICE_ID == voice_id:
-        emit({"type": "progress", "percent": 12, "message": f"Reusing warm Piper PT-PT voice {voice_id}."})
+        emit({"type": "progress", "percent": 12, "message": f"Reusing warm Piper voice {voice_id}."})
         return VOICE, SYNTHESIS_CONFIG
 
     def progress(percent: int, message: str) -> None:

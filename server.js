@@ -42,6 +42,7 @@ const piperNoiseScale = Number(process.env.PIPER_NOISE_SCALE || 0.5);
 const piperNoiseWScale = Number(process.env.PIPER_NOISE_W_SCALE || 0.72);
 const piperCatalogCachePath = path.join(dataDir, "piper", "voices-catalog.json");
 const piperCatalogUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json?download=true";
+const discoverCachePath = path.join(dataDir, "discover-cache.json");
 
 for (const dir of [dataDir, uploadsDir, voicesDir, audioDir, libraryDir, tmpDir, jobsDir, piperDownloadDir]) {
   fs.mkdirSync(dir, { recursive: true });
@@ -99,14 +100,55 @@ const sourceLanguageCatalog = [
 ];
 
 const listenerLanguageCatalog = sourceLanguageCatalog.filter((language) => language.code !== "auto");
-const audiobookLanguageCatalog = [{ code: "pt-pt", locale: "pt-PT", label: "Portuguese (Portugal)" }];
+const audiobookLanguageCatalog = [
+  { code: "pt-pt", locale: "pt-PT", label: "Portuguese (Portugal)" },
+  { code: "pt-br", locale: "pt-BR", label: "Portuguese (Brazil)" },
+  { code: "en-us", locale: "en-US", label: "English (US)" },
+  { code: "en-gb", locale: "en-GB", label: "English (UK)" },
+  { code: "es-es", locale: "es-ES", label: "Spanish (Spain)" },
+  { code: "es-mx", locale: "es-MX", label: "Spanish (Mexico)" },
+  { code: "fr-fr", locale: "fr-FR", label: "French" },
+  { code: "de-de", locale: "de-DE", label: "German" },
+  { code: "it-it", locale: "it-IT", label: "Italian" },
+  { code: "nl-nl", locale: "nl-NL", label: "Dutch" },
+  { code: "nl-be", locale: "nl-BE", label: "Dutch (Belgium)" },
+  { code: "sv-se", locale: "sv-SE", label: "Swedish" },
+  { code: "no-no", locale: "no-NO", label: "Norwegian" },
+  { code: "da-dk", locale: "da-DK", label: "Danish" },
+  { code: "fi-fi", locale: "fi-FI", label: "Finnish" },
+  { code: "pl-pl", locale: "pl-PL", label: "Polish" },
+  { code: "ru-ru", locale: "ru-RU", label: "Russian" },
+  { code: "uk-ua", locale: "uk-UA", label: "Ukrainian" },
+  { code: "cs-cz", locale: "cs-CZ", label: "Czech" },
+  { code: "hu-hu", locale: "hu-HU", label: "Hungarian" },
+  { code: "ro-ro", locale: "ro-RO", label: "Romanian" },
+  { code: "bg-bg", locale: "bg-BG", label: "Bulgarian" },
+  { code: "sk-sk", locale: "sk-SK", label: "Slovak" },
+  { code: "sl-si", locale: "sl-SI", label: "Slovenian" },
+  { code: "sr-rs", locale: "sr-RS", label: "Serbian" },
+  { code: "hr-hr", locale: "hr-HR", label: "Croatian" },
+  { code: "el-gr", locale: "el-GR", label: "Greek" },
+  { code: "tr-tr", locale: "tr-TR", label: "Turkish" },
+  { code: "ar-jo", locale: "ar-JO", label: "Arabic" },
+  { code: "fa-ir", locale: "fa-IR", label: "Persian" },
+  { code: "hi-in", locale: "hi-IN", label: "Hindi" },
+  { code: "zh-cn", locale: "zh-CN", label: "Chinese (Mandarin)" },
+  { code: "vi-vn", locale: "vi-VN", label: "Vietnamese" },
+  { code: "ka-ge", locale: "ka-GE", label: "Georgian" },
+  { code: "ca-es", locale: "ca-ES", label: "Catalan" },
+  { code: "is-is", locale: "is-IS", label: "Icelandic" },
+  { code: "lv-lv", locale: "lv-LV", label: "Latvian" },
+  { code: "sw-cd", locale: "sw-CD", label: "Swahili" },
+];
+
+const audiobookLanguageCodes = new Set(audiobookLanguageCatalog.map((l) => l.code));
 
 const builtInVoiceSamples = [
   {
     id: "storybook",
-    name: getBuiltInPiperVoiceName(piperVoiceId),
-    language: "pt-pt",
-    vibe: `Piper ${getBuiltInPiperVoiceQuality(piperVoiceId)} voice for Portuguese (Portugal)`,
+    name: "Default Piper voice",
+    language: "auto",
+    vibe: "Piper TTS — automatically selects the best voice for the audiobook language",
     builtIn: true,
   },
 ];
@@ -818,7 +860,7 @@ app.post("/api/audiobook/generate", requireSession, async (req, res) => {
     return res.status(400).json({
       ok: false,
       error:
-        "This fast PT-PT VPS engine does not support custom voice cloning yet. Pick the built-in PT-PT voice, or switch TTS_BACKEND=chatterbox for slower clone experiments.",
+        "Piper does not support custom voice cloning. Use the built-in voice, or switch TTS_BACKEND=chatterbox for slower clone experiments.",
     });
   }
 
@@ -939,6 +981,171 @@ app.post("/api/translate", requireSession, async (req, res) => {
       ok: false,
       error: error.message,
     });
+  }
+});
+
+/* ── Project Gutenberg discover cache (via Gutendex) ── */
+
+const discoverCache = new Map();
+const discoverInflight = new Map();
+const DISCOVER_TTL = 24 * 60 * 60 * 1000;
+const DISCOVER_CATEGORIES = ["popular", "fiction", "science fiction", "fantasy", "mystery", "philosophy", "history", "poetry"];
+const GUTENDEX = "https://gutendex.com/books";
+
+// Load persisted cache from disk
+try {
+  if (fs.existsSync(discoverCachePath)) {
+    const saved = JSON.parse(fs.readFileSync(discoverCachePath, "utf8"));
+    for (const [key, val] of Object.entries(saved)) {
+      // Migrate old cache keys (e.g. "popular" → "popular:1")
+      const newKey = key.includes(":") ? key : `${key}:1`;
+      // Migrate old format { ts, books } → { ts, books, hasMore, total, page }
+      if (val.books && val.hasMore === undefined) {
+        val.hasMore = false;
+        val.total = val.books.length;
+        val.page = 1;
+      }
+      discoverCache.set(newKey, val);
+    }
+    console.log(`Loaded discover cache from disk (${discoverCache.size} entries)`);
+  }
+} catch { /* ignore corrupt cache */ }
+
+function persistDiscoverCache() {
+  const obj = Object.fromEntries(discoverCache);
+  fs.writeFile(discoverCachePath, JSON.stringify(obj), () => {});
+}
+
+function flipAuthorName(name) {
+  const parts = name.split(", ");
+  return parts.length === 2 ? `${parts[1]} ${parts[0]}` : name;
+}
+
+function normalizeGutenberg(b) {
+  return {
+    id: b.id,
+    title: b.title,
+    authors: (b.authors || []).map((a) => flipAuthorName(a.name)),
+    coverUrl: b.formats?.["image/jpeg"] || null,
+    textUrl: b.formats?.["text/plain; charset=utf-8"] || b.formats?.["text/plain; charset=us-ascii"] || null,
+    year: (b.authors?.[0]?.birth_year || null),
+    subjects: (b.subjects || []).slice(0, 5),
+    summary: (b.summaries || [])[0] || "",
+  };
+}
+
+async function _doFetchCategory(topic, page = 1) {
+  const cacheKey = `${topic}:${page}`;
+  try {
+    const params = new URLSearchParams({ copyright: "false", languages: "en", sort: "popular", page: String(page) });
+    if (topic !== "popular") params.set("topic", topic);
+    const res = await fetch(`${GUTENDEX}?${params}`);
+    const data = await res.json();
+    const books = (data.results || []).map(normalizeGutenberg);
+    const result = { ts: Date.now(), books, hasMore: !!data.next, total: data.count || 0, page };
+    discoverCache.set(cacheKey, result);
+    persistDiscoverCache();
+    return result;
+  } catch {
+    const cached = discoverCache.get(cacheKey);
+    return cached || { books: [], hasMore: false, total: 0, page };
+  } finally {
+    discoverInflight.delete(cacheKey);
+  }
+}
+
+function fetchDiscoverCategory(topic, page = 1) {
+  const cacheKey = `${topic}:${page}`;
+  const cached = discoverCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < DISCOVER_TTL) return Promise.resolve(cached);
+
+  // Deduplicate in-flight requests
+  let pending = discoverInflight.get(cacheKey);
+  if (!pending) {
+    pending = _doFetchCategory(topic, page);
+    discoverInflight.set(cacheKey, pending);
+  }
+  return pending;
+}
+
+function prefetchAllDiscoverCategories() {
+  for (const cat of DISCOVER_CATEGORIES) {
+    fetchDiscoverCategory(cat).catch(() => {});
+  }
+}
+
+// Prefetch on startup
+prefetchAllDiscoverCategories();
+// Refresh every 24h
+setInterval(prefetchAllDiscoverCategories, DISCOVER_TTL);
+
+app.get("/api/discover/:topic", async (req, res) => {
+  const topic = req.params.topic;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  try {
+    const result = await fetchDiscoverCategory(topic, page);
+    res.json({ ok: true, books: result.books, hasMore: result.hasMore, total: result.total, page: result.page });
+  } catch {
+    res.status(502).json({ ok: false, error: "Could not reach Project Gutenberg." });
+  }
+});
+
+app.get("/api/discover-search", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) return res.json({ ok: true, books: [], hasMore: false, total: 0, page: 1 });
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+
+  const cacheKey = `search_${q.toLowerCase()}:${page}`;
+  const cached = discoverCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < DISCOVER_TTL) {
+    return res.json({ ok: true, books: cached.books, hasMore: cached.hasMore, total: cached.total, page: cached.page });
+  }
+
+  try {
+    const params = new URLSearchParams({ search: q, copyright: "false", languages: "en", page: String(page) });
+    const apiRes = await fetch(`${GUTENDEX}?${params}`);
+    const data = await apiRes.json();
+    const books = (data.results || []).map(normalizeGutenberg);
+    const result = { ts: Date.now(), books, hasMore: !!data.next, total: data.count || 0, page };
+    discoverCache.set(cacheKey, result);
+    persistDiscoverCache();
+    res.json({ ok: true, books: result.books, hasMore: result.hasMore, total: result.total, page: result.page });
+  } catch {
+    res.status(502).json({ ok: false, error: "Search failed." });
+  }
+});
+
+app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
+  const { title, textUrl, coverUrl } = req.body || {};
+  if (!textUrl || !String(textUrl).startsWith("https://www.gutenberg.org/")) {
+    return res.status(400).json({ ok: false, error: "Invalid Gutenberg URL." });
+  }
+  try {
+    const textRes = await fetch(String(textUrl));
+    if (!textRes.ok) throw new Error("Could not download book text.");
+    const rawText = await textRes.text();
+
+    // Build a fake request object compatible with createLibraryBookFromRequest
+    const fakeReq = {
+      body: {
+        title: String(title || "Untitled Book").trim(),
+        text: rawText,
+        sourceLanguage: "en",
+        listenerLanguage: req.body.listenerLanguage || userPreferences.listenerLanguage || "en",
+        audiobookLanguage: req.body.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt",
+      },
+      file: null,
+      _gutenbergCoverUrl: coverUrl || "",
+    };
+    const imported = await createLibraryBookFromRequest(fakeReq);
+    return res.json({
+      ok: true,
+      existing: Boolean(imported.existing),
+      book: toPublicBook(imported.book),
+      page: toPublicBookPage(imported.book, imported.book.progress?.pageIndex || 0),
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
   }
 });
 
@@ -1194,9 +1401,9 @@ function buildGeneratePiperArgs(config) {
     "--speed",
     String(config.narrationSpeed),
     "--voice-id",
-    piperVoiceId,
+    resolvePiperVoiceForLanguage(config.language).voiceId,
     "--model-path",
-    piperModelPath,
+    resolvePiperVoiceForLanguage(config.language).modelPath,
     "--download-dir",
     piperDownloadDir,
     "--length-scale",
@@ -1237,10 +1444,11 @@ async function runChatterboxGeneration(config, handlers = {}) {
 async function runPiperGeneration(config, handlers = {}) {
   if (config.voiceSamplePath) {
     throw new Error(
-      "Custom voice cloning is not supported in the fast CPU Piper path. Use the built-in PT-PT voice on VPS, or switch TTS_BACKEND=chatterbox for slow clone experiments."
+      "Custom voice cloning is not supported in Piper. Use the built-in voice, or switch TTS_BACKEND=chatterbox for slow clone experiments."
     );
   }
 
+  const resolvedVoice = resolvePiperVoiceForLanguage(config.language);
   try {
     await runWarmPiperJob(
       {
@@ -1250,8 +1458,8 @@ async function runPiperGeneration(config, handlers = {}) {
         language: normalizeNarrationModelLanguage(config.language),
         voice_sample: "",
         speed: config.narrationSpeed,
-        voice_id: piperVoiceId,
-        model_path: piperModelPath,
+        voice_id: resolvedVoice.voiceId,
+        model_path: resolvedVoice.modelPath,
         download_dir: piperDownloadDir,
         length_scale: piperLengthScale,
         noise_scale: piperNoiseScale,
@@ -1617,7 +1825,7 @@ function normalizeLanguageCode(language) {
   if (!code || code === "auto") {
     return "auto";
   }
-  if (code === "pt-br" || code === "pt-pt") {
+  if (audiobookLanguageCodes.has(code)) {
     return code;
   }
   if (code === "pt") {
@@ -1628,10 +1836,58 @@ function normalizeLanguageCode(language) {
 
 function normalizeNarrationModelLanguage(language) {
   const code = normalizeLanguageCode(language);
-  if (code === "pt-br" || code === "pt-pt" || code === "pt") {
-    return "pt";
-  }
-  return code;
+  // Piper text normalization uses bare language codes
+  return code.split("-")[0];
+}
+
+// Default Piper voice IDs per audiobook language (best available for each)
+const defaultPiperVoices = {
+  "pt-pt": "pt_PT-tugão-medium",
+  "pt-br": "pt_BR-faber-medium",
+  "en-us": "en_US-lessac-medium",
+  "en-gb": "en_GB-cori-medium",
+  "es-es": "es_ES-sharvard-medium",
+  "es-mx": "es_MX-ald-medium",
+  "fr-fr": "fr_FR-siwis-medium",
+  "de-de": "de_DE-thorsten-medium",
+  "it-it": "it_IT-riccardo-x_low",
+  "nl-nl": "nl_NL-mls-medium",
+  "nl-be": "nl_BE-nathalie-medium",
+  "sv-se": "sv_SE-nst-medium",
+  "no-no": "no_NO-talesyntese-medium",
+  "da-dk": "da_DK-talesyntese-medium",
+  "fi-fi": "fi_FI-harri-medium",
+  "pl-pl": "pl_PL-darkman-medium",
+  "ru-ru": "ru_RU-irina-medium",
+  "uk-ua": "uk_UA-ukrainian_tts-medium",
+  "cs-cz": "cs_CZ-jirka-medium",
+  "hu-hu": "hu_HU-anna-medium",
+  "ro-ro": "ro_RO-mihai-medium",
+  "bg-bg": "bg_BG-equinox-medium",
+  "sk-sk": "sk_SK-lili-medium",
+  "sl-si": "sl_SI-artur-medium",
+  "sr-rs": "sr_RS-serbski_institut-medium",
+  "el-gr": "el_GR-rapunzelina-low",
+  "tr-tr": "tr_TR-dfki-medium",
+  "ar-jo": "ar_JO-kareem-medium",
+  "fa-ir": "fa_IR-amir-medium",
+  "hi-in": "hi_IN-mad_dogs-medium",
+  "zh-cn": "zh_CN-huayan-medium",
+  "vi-vn": "vi_VN-vivos-x_low",
+  "ka-ge": "ka_GE-natia-medium",
+  "ca-es": "ca_ES-upc_ona-medium",
+  "is-is": "is_IS-bui-medium",
+  "lv-lv": "lv_LV-aivars-medium",
+  "sw-cd": "sw_CD-lanfrica-medium",
+};
+
+function resolvePiperVoiceForLanguage(language) {
+  const code = normalizeLanguageCode(language);
+  // Try exact match first, then fall back to default
+  const voiceId = defaultPiperVoices[code] || piperVoiceId;
+  const sanitizedId = voiceId.normalize("NFKD").replace(/[^\x00-\x7F]/g, "").replace(/[^a-zA-Z0-9._-]/g, "-");
+  const modelPath = path.join(piperDownloadDir, `${sanitizedId}.onnx`);
+  return { voiceId, modelPath };
 }
 
 function normalizeTranslationProviderLanguage(language) {
@@ -1644,12 +1900,13 @@ function normalizeTranslationProviderLanguage(language) {
     if (code === "pt-br") {
       return "pt-BR";
     }
-    return code;
+    // Google Translate uses bare language codes for most languages
+    return code.split("-")[0];
   }
   if (code === "pt-br" || code === "pt-pt") {
     return "pt";
   }
-  return code;
+  return code.split("-")[0];
 }
 
 function getTranslationProvider() {
@@ -1773,7 +2030,7 @@ function normalizePiperVoiceCatalog(payload) {
     .map((entry) => {
       const language = entry.language || {};
       const appLanguageCode = normalizePiperLanguageCode(language.code || "");
-      const compatible = appLanguageCode === "pt-pt";
+      const isDefaultVoice = String(entry.key || "") === piperVoiceId;
       return {
         key: String(entry.key || ""),
         name: formatPiperVoiceName(entry.name || entry.key || "Voice"),
@@ -1782,10 +2039,10 @@ function normalizePiperVoiceCatalog(payload) {
         languageLabel: language.name_english || language.name_native || language.code || "Unknown",
         countryLabel: language.country_english || "",
         speakers: Number(entry.num_speakers || 1),
-        selectable: compatible && String(entry.key || "") === piperVoiceId,
-        compatible,
-        installed: compatible && String(entry.key || "") === piperVoiceId,
-        active: String(entry.key || "") === piperVoiceId,
+        selectable: true,
+        compatible: true,
+        installed: isDefaultVoice,
+        active: isDefaultVoice,
       };
     })
     .filter((entry) => entry.key)
@@ -2856,23 +3113,22 @@ function analyzeBookStructure(pages) {
   const maxScanPages = Math.min(pages.length, 160);
   let suggestedStartPageIndex = 0;
   let foundStart = false;
-  let explicitChapterStartPageIndex = -1;
 
+  // First pass: classify every page
+  const classifications = [];
   for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
     const page = pages[pageIndex];
     const analysis = analyzePageStructure(page.originalText || "");
     if (analysis.title) {
       page.title = analysis.title;
     }
+    classifications.push(analysis);
 
     if (analysis.isChapterStart) {
       chapterMarkers.push({
         pageIndex,
         title: analysis.title || `Page ${pageIndex + 1}`,
       });
-      if (explicitChapterStartPageIndex < 0 && analysis.isExplicitChapter) {
-        explicitChapterStartPageIndex = pageIndex;
-      }
       if (!foundStart) {
         suggestedStartPageIndex = pageIndex;
         foundStart = true;
@@ -2880,10 +3136,26 @@ function analyzeBookStructure(pages) {
     }
   }
 
+  // Second pass: if we found a chapter start, treat everything before it
+  // that isn't itself a chapter as front matter (skippable preamble).
+  // This catches dense continuation pages of forewords, notes, etc.
+  if (foundStart && suggestedStartPageIndex > 0) {
+    const preambleMarkers = chapterMarkers.filter((m) => m.pageIndex < suggestedStartPageIndex);
+    if (preambleMarkers.length === 0) {
+      // No earlier chapter markers — everything before suggestedStartPageIndex is preamble
+      for (let i = 0; i < suggestedStartPageIndex; i += 1) {
+        classifications[i].isFrontMatter = true;
+        classifications[i].isChapterStart = false;
+      }
+    }
+  }
+
+  // Fallback: if no chapter was detected at all, find the first non-front-matter
+  // page with substantial text
   if (!foundStart) {
     for (let pageIndex = 0; pageIndex < maxScanPages; pageIndex += 1) {
       const page = pages[pageIndex];
-      const analysis = analyzePageStructure(page.originalText || "");
+      const analysis = classifications[pageIndex];
       if (!analysis.isFrontMatter && countWords(page.originalText || "") > 70) {
         suggestedStartPageIndex = pageIndex;
         foundStart = true;
@@ -2893,7 +3165,7 @@ function analyzeBookStructure(pages) {
   }
 
   return {
-    suggestedStartPageIndex: explicitChapterStartPageIndex >= 0 ? explicitChapterStartPageIndex : suggestedStartPageIndex,
+    suggestedStartPageIndex,
     chapterMarkers,
   };
 }
@@ -2906,16 +3178,19 @@ function analyzePageStructure(text) {
     .filter(Boolean);
   const firstLines = lines.slice(0, 6);
   const firstChunk = firstLines.join(" ").slice(0, 260);
+  const fullHead = normalizedText.slice(0, 800);
   const tocLineCount = lines.filter((line) => /\.{2,}\s*\d+\s*$/u.test(line) || /\b\d+\s*$/u.test(line)).length;
   const wordCount = countWords(normalizedText);
 
   const frontMatterPattern =
-    /\b(?:table of contents|contents|index|copyright|all rights reserved|isbn|foreword|preface|acknowledg(?:e)?ments?|introduction|dedication|title page|sum[aá]rio|[íi]ndice|pref[aá]cio|agradecimentos|introdu[cç][aã]o|dedicat[oó]ria)\b/iu;
+    /\b(?:table of contents|contents|index|copyright|all rights reserved|isbn|foreword|preface|acknowledg(?:e)?ments?|introduction|dedication|title page|editor['']?s? note|translator['']?s? note|note on the (?:text|translation|author)|about the (?:author|translator|editor)|biographical note|publisher['']?s? note|list of (?:illustrations|plates|maps|figures)|illustrations|dramatis personae|persons represented|sum[aá]rio|[íi]ndice|pref[aá]cio|agradecimentos|introdu[cç][aã]o|dedicat[oó]ria|nota (?:do|da) (?:tradutor|editor))\b/iu;
+  const gutenbergPattern =
+    /\b(?:project gutenberg|distributed proofreading|etext|e-text|this ebook|this e-book|produced by|transcriber['']?s? note)\b/iu;
   const chapterPattern =
     /^(?:chapter|cap[ií]tulo|livro|book|part|parte|prologue|pr[oó]logo|epilogue|ep[ií]logo)\b/iu;
 
   const chapterHeadingLine = firstLines.find((line) => chapterPattern.test(line)) || "";
-  const romanHeadingLine = firstLines.find((line) => /^(?:[IVXLCDM]+|[0-9]{1,3})[.)-]?$/u.test(line)) || "";
+  const romanHeadingLine = firstLines.find((line) => /^(?:[IVXLCDM]+|[0-9]{1,3})[.)\-]?\s*$/u.test(line)) || "";
   const titleCandidateLines = firstLines.filter((line) => isBookHeadingLine(line)).slice(0, 2);
   const titleCandidate = compactDetectedPageTitle(titleCandidateLines.join(" - "));
 
@@ -2934,13 +3209,25 @@ function analyzePageStructure(text) {
   if (frontMatterPattern.test(firstChunk)) {
     frontMatterScore += 3;
   }
+  if (frontMatterPattern.test(fullHead)) {
+    frontMatterScore += 2;
+  }
+  if (gutenbergPattern.test(fullHead)) {
+    frontMatterScore += 4;
+  }
   if (tocLineCount >= 3) {
     frontMatterScore += 3;
   }
   if (/\b(?:copyright|all rights reserved|isbn)\b/iu.test(normalizedText.slice(0, 600))) {
     frontMatterScore += 3;
   }
-  if (wordCount < 60 && !chapterHeadingLine) {
+  if (wordCount < 30 && !chapterHeadingLine) {
+    frontMatterScore += 2;
+  } else if (wordCount < 60 && !chapterHeadingLine) {
+    frontMatterScore += 1;
+  }
+  // Roman numeral page markers (e.g., "xv", "xxii") are typical of front matter
+  if (/\b[ivxlc]{2,6}\b/iu.test(firstLines[0] || "") && !chapterHeadingLine) {
     frontMatterScore += 1;
   }
 
@@ -3104,7 +3391,9 @@ async function sanitizeLibraryBookState(book) {
     book.chapterMarkers.length === 0 ||
     !book.chapterMarkers.some((marker) => /^(?:chapter|cap[ií]tulo)\b/iu.test(marker?.title || "")) ||
     (Number.isInteger(firstExplicitStoredChapterMarker?.pageIndex) &&
-      firstExplicitStoredChapterMarker.pageIndex > previousSuggestedStartPageIndex + 2);
+      firstExplicitStoredChapterMarker.pageIndex > previousSuggestedStartPageIndex + 2) ||
+    (Array.isArray(book.chapterMarkers) && book.chapterMarkers.length > 0 &&
+      book.chapterMarkers[0].pageIndex < previousSuggestedStartPageIndex - 2);
 
   if (shouldRefreshStructure && Array.isArray(book.pages)) {
     const structure = analyzeBookStructure(book.pages);
@@ -3466,6 +3755,22 @@ async function createLibraryBookFromRequest(req) {
     if (req.file?.path) {
       await fsp.rm(req.file.path, { force: true }).catch(() => {});
     }
+    // Download cover for existing Gutenberg books that lack one
+    if (!existingBook.coverUrl && req._gutenbergCoverUrl) {
+      try {
+        const existingBookDir = getLibraryBookDir(existingBook.id);
+        const existingCoverPath = path.join(existingBookDir, "cover.jpg");
+        if (!fs.existsSync(existingCoverPath)) {
+          const coverRes = await fetch(String(req._gutenbergCoverUrl));
+          if (coverRes.ok) {
+            const coverBuf = Buffer.from(await coverRes.arrayBuffer());
+            await fsp.writeFile(existingCoverPath, coverBuf);
+            existingBook.coverUrl = `/library-assets/${existingBook.id}/cover.jpg`;
+            await persistLibraryBook(existingBook);
+          }
+        }
+      } catch { /* cover download failed, continue without */ }
+    }
     return {
       book: existingBook,
       existing: true,
@@ -3485,6 +3790,14 @@ async function createLibraryBookFromRequest(req) {
     await fsp.rename(req.file.path, sourcePath);
     const coverPath = path.join(bookDir, "cover.jpg");
     await maybeCreateBookCover(sourcePath, req.file.originalname, coverPath);
+  } else if (req._gutenbergCoverUrl) {
+    try {
+      const coverRes = await fetch(String(req._gutenbergCoverUrl));
+      if (coverRes.ok) {
+        const coverBuf = Buffer.from(await coverRes.arrayBuffer());
+        await fsp.writeFile(path.join(bookDir, "cover.jpg"), coverBuf);
+      }
+    } catch { /* cover download failed, continue without */ }
   }
 
   const coverUrl = fs.existsSync(path.join(bookDir, "cover.jpg")) ? `/library-assets/${bookId}/cover.jpg` : "";
@@ -3912,7 +4225,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
 
         if (voiceKey !== "storybook" && !narrationBackendSupportsCustomVoiceCloning(narrationRequest.engine)) {
           throw new Error(
-            "This fast PT-PT VPS engine does not support custom voice cloning yet. Pick the built-in PT-PT voice, or switch the backend back to Chatterbox for slower clone experiments."
+            "Piper does not support custom voice cloning. Use the built-in voice, or switch the backend to Chatterbox for slower clone experiments."
           );
         }
 

@@ -34,7 +34,7 @@ def emit_progress(percent: int, message: str) -> None:
 
 
 def load_voice(model_path: str, voice_id: str, download_dir: str):
-    emit_progress(10, "Loading Piper PT-PT voice.")
+    emit_progress(10, "Loading Piper voice.")
     final_model_path = ensure_voice_downloaded(
         voice_id=voice_id,
         download_dir=download_dir,
@@ -45,7 +45,7 @@ def load_voice(model_path: str, voice_id: str, download_dir: str):
     from piper.voice import PiperVoice
 
     voice = PiperVoice.load(final_model_path)
-    emit_progress(12, f"Using Piper PT-PT voice {voice_id}.")
+    emit_progress(12, f"Using Piper voice {voice_id}.")
     return voice, SynthesisConfig, final_model_path
 
 
