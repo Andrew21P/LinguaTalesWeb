@@ -3,37 +3,379 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Voxenor</title>
+    <title>Voxenor — Private Audio Reading Room</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!--  LANDING PAGE                                          -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="landing-page" class="landing-page">
+      <div class="landing-bg">
+        <div class="landing-orb landing-orb-1"></div>
+        <div class="landing-orb landing-orb-2"></div>
+        <div class="landing-orb landing-orb-3"></div>
+        <div class="landing-grain"></div>
+      </div>
+
+      <nav class="landing-nav">
+        <div class="landing-brand">
+          <span class="brand-wordmark">Voxenor</span>
+          <span class="brand-tagline">Your private audiobook studio</span>
+        </div>
+        <div class="landing-nav-actions">
+          <button id="nav-login" class="nav-link" type="button">Log in</button>
+          <button id="nav-signup" class="nav-button" type="button">Get started</button>
+        </div>
+      </nav>
+
+      <!-- ── Hero: Logo + Headline + Bookshelf ── -->
+      <section class="landing-hero">
+        <div class="hero-left">
+          <div class="hero-logo-frame">
+            <div class="hero-logo-glow"></div>
+            <img src="/logo.png" alt="Voxenor — The Raven's Library" class="hero-logo" width="320" height="320" />
+            <div class="hero-logo-ornament hero-logo-ornament-tl"></div>
+            <div class="hero-logo-ornament hero-logo-ornament-tr"></div>
+            <div class="hero-logo-ornament hero-logo-ornament-bl"></div>
+            <div class="hero-logo-ornament hero-logo-ornament-br"></div>
+          </div>
+          <div class="hero-badge">
+            <span class="hero-badge-dot"></span>
+            Private &middot; Self-hosted &middot; Yours forever
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <h1 class="landing-h1">
+            Turn any book into<br/>
+            <span class="hero-accent">an audiobook.</span>
+          </h1>
+          <p class="landing-subtitle">
+            Drop a PDF in Chinese, a novel in Russian, an EPUB in English —
+            Voxenor translates it and generates a full audiobook in your target
+            language while you read. Click any word to see its translation.
+            Learn languages or just listen. Self-hosted, private, yours.
+          </p>
+          <div class="hero-actions">
+            <button id="hero-get-started" class="btn btn-primary btn-lg" type="button">
+              Start your library
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4l6 6-6 6" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            </button>
+            <button id="hero-learn-more" class="btn btn-ghost btn-lg" type="button">See how it works</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Bookshelf showcase ── -->
+      <section class="landing-shelf">
+        <div class="shelf-ornament-left"></div>
+        <div class="shelf-ornament-right"></div>
+        <div class="shelf-row">
+          <div class="shelf-book shelf-book-1">
+            <span class="shelf-book-title">War and Peace</span>
+            <span class="shelf-book-author">Tolstoy</span>
+          </div>
+          <div class="shelf-book shelf-book-2">
+            <span class="shelf-book-title">三体</span>
+            <span class="shelf-book-author">刘慈欣</span>
+          </div>
+          <div class="shelf-book shelf-book-3">
+            <span class="shelf-book-title">Os Lusíadas</span>
+            <span class="shelf-book-author">Camões</span>
+          </div>
+          <div class="shelf-book shelf-book-4">
+            <span class="shelf-book-title">Don Quixote</span>
+            <span class="shelf-book-author">Cervantes</span>
+          </div>
+          <div class="shelf-book shelf-book-5">
+            <span class="shelf-book-title">百年孤独</span>
+            <span class="shelf-book-author">Márquez</span>
+          </div>
+          <div class="shelf-book shelf-book-6">
+            <span class="shelf-book-title">Le Petit Prince</span>
+            <span class="shelf-book-author">Saint-Exupéry</span>
+          </div>
+          <div class="shelf-book shelf-book-7">
+            <span class="shelf-book-title">Kafka on the Shore</span>
+            <span class="shelf-book-author">村上春樹</span>
+          </div>
+          <div class="shelf-book shelf-book-8">
+            <span class="shelf-book-title">Crime and Punishment</span>
+            <span class="shelf-book-author">Dostoevsky</span>
+          </div>
+        </div>
+        <div class="shelf-ledge"></div>
+        <p class="shelf-caption">Any book, any language in — audiobook in your target language out.</p>
+      </section>
+
+      <!-- ── Reader Preview ── -->
+      <section class="landing-preview">
+        <div class="preview-header">
+          <p class="section-eyebrow">Immersive reading experience</p>
+          <h2 class="landing-h2">Read, listen, and learn<br/>on a single&nbsp;page.</h2>
+        </div>
+        <div class="preview-window">
+          <div class="preview-chrome">
+            <div class="preview-dots"><span></span><span></span><span></span></div>
+            <span class="preview-tab">Page 24 — O Rapaz de Bronze</span>
+          </div>
+          <div class="preview-body">
+            <div class="preview-page preview-page-left">
+              <p class="preview-text">O rapaz atravessou o <span class="preview-highlight">jardim</span> devagar, com as mãos nos bolsos. As árvores estavam cheias de folhas novas, e o ar cheirava a terra molhada.</p>
+              <p class="preview-text">Parou junto ao muro e olhou para o céu. As estrelas começavam a aparecer, uma a uma, como pequenas luzes acesas por alguém muito paciente.</p>
+              <p class="preview-text">— Boa noite — disse baixinho, para ninguém em particular.</p>
+            </div>
+            <div class="preview-gutter"></div>
+            <div class="preview-page preview-page-right">
+              <p class="preview-text">A <span class="preview-highlight">madrugada</span> chegou sem que ele desse conta. O livro estava aberto sobre a mesa, com as páginas voltadas para a janela.</p>
+              <p class="preview-text">Lá fora, a cidade acordava aos poucos. Primeiro os pássaros, depois os carros, depois as vozes das pessoas na rua.</p>
+              <p class="preview-text">Ele fechou os olhos e ouviu tudo aquilo como quem ouve uma canção que já conhece de cor.</p>
+            </div>
+          </div>
+          <div class="preview-vocab-bar">
+            <div class="preview-vocab-chip"><strong>rapaz</strong><span>boy</span></div>
+            <div class="preview-vocab-chip"><strong>passadeira</strong><span>crosswalk</span></div>
+            <div class="preview-vocab-chip"><strong>jardim</strong><span>garden</span></div>
+            <div class="preview-vocab-chip"><strong>madrugada</strong><span>dawn</span></div>
+          </div>
+          <div class="preview-waveform">
+            <div class="preview-wave-bar" style="--h:40%"></div>
+            <div class="preview-wave-bar" style="--h:65%"></div>
+            <div class="preview-wave-bar" style="--h:85%"></div>
+            <div class="preview-wave-bar" style="--h:55%"></div>
+            <div class="preview-wave-bar" style="--h:95%"></div>
+            <div class="preview-wave-bar" style="--h:70%"></div>
+            <div class="preview-wave-bar" style="--h:50%"></div>
+            <div class="preview-wave-bar" style="--h:80%"></div>
+            <div class="preview-wave-bar" style="--h:60%"></div>
+            <div class="preview-wave-bar active" style="--h:40%"></div>
+            <div class="preview-wave-bar" style="--h:75%"></div>
+            <div class="preview-wave-bar" style="--h:90%"></div>
+            <div class="preview-wave-bar" style="--h:45%"></div>
+            <div class="preview-wave-bar" style="--h:30%"></div>
+            <div class="preview-wave-bar" style="--h:55%"></div>
+            <div class="preview-wave-bar" style="--h:70%"></div>
+            <div class="preview-wave-bar" style="--h:85%"></div>
+            <div class="preview-wave-bar" style="--h:50%"></div>
+            <div class="preview-wave-bar" style="--h:65%"></div>
+            <div class="preview-wave-bar" style="--h:75%"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Features ── -->
+      <section id="features-section" class="landing-features">
+        <div class="features-header">
+          <p class="section-eyebrow">Everything you need</p>
+          <h2 class="landing-h2">A complete reading studio<br/>in your&nbsp;pocket.</h2>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card feature-card-lg">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+            </div>
+            <h3>Import anything</h3>
+            <p>PDF, EPUB, plain text, or even a photo of a book page. Voxenor extracts and paginates text automatically — with OCR for scanned pages.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 18.5a6.5 6.5 0 100-13 6.5 6.5 0 000 13z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10 9l4 3-4 3V9z" fill="currentColor"/></svg>
+            </div>
+            <h3>Natural narration</h3>
+            <p>Broadcast-quality voice synthesis in any target language with professional audio mastering. Words highlighted as they're spoken.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M3 5h12M3 9h8M3 13h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M17 9l4 2-4 2V9z" fill="currentColor" opacity="0.6"/><path d="M14 17a3 3 0 106 0 3 3 0 00-6 0z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M17 15v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </div>
+            <h3>Smart translation</h3>
+            <p>Every page auto-translated to your chosen target language with deep lexicon normalization. Chinese, Portuguese, Spanish, German — you pick.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2V3zM22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7V3z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+            </div>
+            <h3>Vocabulary vault</h3>
+            <p>Click any word for an instant translation. Save it and build a personal dictionary with context from your books.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 11V7a5 5 0 0110 0v4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/></svg>
+            </div>
+            <h3>Fully private</h3>
+            <p>Self-hosted on your own server. No cloud, no tracking, no subscription. Your library stays yours forever.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+            </div>
+            <h3>Instant setup</h3>
+            <p>Runs on a single small VPS. No GPU required, no Docker, no complex infrastructure. Just Node.js and Python.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── How it works ── -->
+      <section class="landing-how">
+        <div class="how-header">
+          <p class="section-eyebrow">Three simple steps</p>
+          <h2 class="landing-h2">From any book to<br/>any&nbsp;audiobook.</h2>
+        </div>
+
+        <div class="how-steps">
+          <div class="how-step">
+            <div class="how-step-icon">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 2v6h6M8 13h8M8 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </div>
+            <div class="how-step-number">01</div>
+            <h3>Import your book</h3>
+            <p>Upload a PDF, EPUB, or paste text. Voxenor extracts, paginates, and detects the source language automatically.</p>
+          </div>
+          <div class="how-step-divider"></div>
+          <div class="how-step">
+            <div class="how-step-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 18.5a6.5 6.5 0 100-13 6.5 6.5 0 000 13z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 9l4 3-4 3V9z" fill="currentColor"/></svg>
+            </div>
+            <div class="how-step-number">02</div>
+            <h3>Open &amp; listen</h3>
+            <p>Press play on any page. Translation and narration happen on demand — with six pages always warming ahead.</p>
+          </div>
+          <div class="how-step-divider"></div>
+          <div class="how-step">
+            <div class="how-step-icon">
+              <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2V3zM22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7V3z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+            </div>
+            <div class="how-step-number">03</div>
+            <h3>Learn as you go</h3>
+            <p>Follow along with word highlighting. Tap any word for instant translation. Save the ones that matter.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── CTA ── -->
+      <section class="landing-cta">
+        <div class="cta-card">
+          <img src="/logo.png" alt="" class="cta-logo" width="200" height="200" />
+          <h2 class="landing-h2">Ready to start reading?</h2>
+          <p>Your private audiobook studio is one click away.</p>
+          <button id="cta-get-started" class="btn btn-primary btn-lg" type="button">
+            Enter Voxenor
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4l6 6-6 6" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- ── Footer ── -->
+      <footer class="landing-footer">
+        <div class="footer-inner">
+          <div class="footer-brand">
+            <img src="/logo.png" alt="Voxenor" class="brand-logo brand-logo-footer" width="64" height="64" />
+            <span>Voxenor</span>
+          </div>
+          <p class="footer-note">Private audio reading room. Self-hosted. Open source.</p>
+        </div>
+      </footer>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!--  AUTH SHELL (Login / Sign Up)                          -->
+    <!-- ═══════════════════════════════════════════════════════ -->
     <div id="auth-shell" class="auth-shell hidden">
+      <div class="auth-backdrop"></div>
       <div class="auth-card">
-        <p class="eyebrow">Private library</p>
-        <h2>Enter Voxenor</h2>
-        <p class="lede">
-          One simple sign-in for your saved books, page audio, vocabulary, and reading progress.
-        </p>
-        <label class="field">
-          <span>Email</span>
-          <input id="auth-email" type="text" autocomplete="username" placeholder="you@example.com" />
-        </label>
-        <label class="field">
-          <span>Password</span>
-          <input id="auth-password" type="password" autocomplete="current-password" placeholder="Password" />
-        </label>
-        <button id="auth-submit" class="primary-button" type="button">Open library</button>
-        <p id="auth-status" class="status-text">Sign in once and your session stays cached on this device.</p>
+        <button id="auth-close" class="auth-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+
+        <div class="auth-header">
+          <div class="brand-mark brand-mark-sm">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <path d="M6 8C6 6 8 4 10 4h12c2 0 4 2 4 4v16c0 2-2 4-4 4H10c-2 0-4-2-4-4V8z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M11 10h10M11 14h8M11 18h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h2>Welcome to Voxenor</h2>
+          <p class="auth-subtitle">Your private audio reading room</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login" type="button">Log in</button>
+          <button class="auth-tab" data-tab="signup" type="button">Sign up</button>
+          <div class="auth-tab-indicator"></div>
+        </div>
+
+        <div class="auth-body">
+          <div class="auth-pane auth-pane-login active">
+            <label class="field">
+              <span>Email</span>
+              <input id="auth-email" type="text" autocomplete="username" placeholder="you@example.com" />
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="auth-password" type="password" autocomplete="current-password" placeholder="Enter your password" />
+            </label>
+            <button id="auth-submit" class="btn btn-primary btn-full" type="button">
+              Open my library
+            </button>
+          </div>
+
+          <div class="auth-pane auth-pane-signup">
+            <label class="field">
+              <span>Email</span>
+              <input id="signup-email" type="text" autocomplete="username" placeholder="you@example.com" />
+            </label>
+            <label class="field">
+              <span>Choose a password</span>
+              <input id="signup-password" type="password" autocomplete="new-password" placeholder="Create a password" />
+            </label>
+            <label class="field">
+              <span>Confirm password</span>
+              <input id="signup-confirm" type="password" autocomplete="new-password" placeholder="Repeat your password" />
+            </label>
+            <button id="signup-submit" class="btn btn-primary btn-full" type="button">
+              Create my library
+            </button>
+          </div>
+        </div>
+
+        <p id="auth-status" class="auth-status-text">Sign in once and your session stays cached on this device.</p>
+
+        <div class="auth-footer">
+          <div class="auth-divider"><span>or</span></div>
+          <p class="auth-switch-text">
+            <span class="auth-switch-login">Don't have an account? <button class="link-button" data-tab="signup" type="button">Sign up</button></span>
+            <span class="auth-switch-signup hidden">Already have an account? <button class="link-button" data-tab="login" type="button">Log in</button></span>
+          </p>
+        </div>
       </div>
     </div>
 
-    <div class="app-shell">
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!--  APP SHELL (Library + Reader)                          -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="app-shell hidden">
       <div class="ambient ambient-one"></div>
       <div class="ambient ambient-two"></div>
 
       <header class="app-topbar">
         <div class="brand-lockup">
-          <div class="brand-mark">VX</div>
+          <div class="brand-mark">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <path d="M6 8C6 6 8 4 10 4h12c2 0 4 2 4 4v16c0 2-2 4-4 4H10c-2 0-4-2-4-4V8z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M11 10h10M11 14h8M11 18h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </div>
           <div>
             <p class="eyebrow">Private audio reading room</p>
             <h1>Voxenor</h1>
@@ -81,8 +423,8 @@
                 </div>
 
                 <div class="showcase-reader-bottom">
-                  <span class="showcase-word">rapaz -> boy</span>
-                  <span class="showcase-word">passadeira -> crosswalk</span>
+                  <span class="showcase-word">rapaz &rarr; boy</span>
+                  <span class="showcase-word">passadeira &rarr; crosswalk</span>
                 </div>
               </div>
             </div>
@@ -136,8 +478,11 @@
                       type="file"
                       accept=".pdf,.epub,.txt,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,image/*"
                     />
-                    <span class="upload-title">Upload a book file or real page photo</span>
-                    <span class="upload-subtitle">Voxenor extracts text locally, including OCR for scans and photos.</span>
+                    <span class="upload-icon">
+                      <svg viewBox="0 0 24 24"><path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+                    </span>
+                    <span class="upload-title">Upload a book file or page photo</span>
+                    <span class="upload-subtitle">PDF, EPUB, TXT, or image — Voxenor extracts text with OCR when needed.</span>
                   </label>
 
                   <div class="stack compact-gap">
@@ -155,7 +500,7 @@
                     </label>
                   </div>
 
-                  <button id="book-submit" class="primary-button" type="submit">Save and read!</button>
+                  <button id="book-submit" class="btn btn-primary btn-full" type="submit">Save and read!</button>
                   <p id="book-status" class="status-text">Import once and Voxenor opens the book right away, then starts preparing the current reading window.</p>
                 </form>
               </section>
@@ -215,7 +560,10 @@
           <div class="reader-layout">
             <aside class="reader-side left">
               <section class="card book-summary-card">
-                <button id="back-to-library" class="ghost-button back-button" type="button">Back to library</button>
+                <button id="back-to-library" class="ghost-button back-button" type="button">
+                  <svg viewBox="0 0 20 20" width="14" height="14"><path d="M13 4L7 10l6 6" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+                  Back to library
+                </button>
 
                 <div class="current-book-head">
                   <div id="reader-book-cover" class="current-book-cover">VX</div>
@@ -241,7 +589,7 @@
                     <span>Go to page</span>
                     <input id="go-to-page-input" type="number" min="1" step="1" placeholder="12" />
                   </label>
-                  <button class="secondary-button" type="submit">Open page</button>
+                  <button class="btn btn-secondary" type="submit">Open page</button>
                 </form>
 
                 <div class="meta-grid">
@@ -262,7 +610,7 @@
                   <span id="reader-status-pill" class="soft-pill">Idle</span>
                 </div>
 
-                <button id="generate-button" class="primary-button hidden" type="button" aria-hidden="true">Generate audiobook</button>
+                <button id="generate-button" class="btn btn-primary hidden" type="button" aria-hidden="true">Generate audiobook</button>
 
                 <div id="generation-status" class="generation-status">
                   <div class="status-row">
@@ -284,7 +632,10 @@
               </div>
 
               <div class="reader-controls">
-                <button id="play-toggle" class="play-button" type="button" disabled>Play</button>
+                <button id="play-toggle" class="play-button" type="button" disabled>
+                  <svg viewBox="0 0 20 20" width="16" height="16"><path d="M6 4l10 6-10 6V4z" fill="currentColor"/></svg>
+                  Play
+                </button>
                 <button id="pause-toggle" class="ghost-button" type="button" disabled>Pause</button>
                 <button id="restart-toggle" class="ghost-button" type="button" disabled>Restart page</button>
               </div>
@@ -351,7 +702,7 @@
                 <div id="selection-translation" class="lookup-output empty-state">
                   Click a word or select a phrase in the page to translate it here.
                 </div>
-                <button id="save-word-button" class="secondary-button hidden" type="button">Save to my words</button>
+                <button id="save-word-button" class="btn btn-secondary hidden" type="button">Save to my words</button>
               </section>
 
               <section class="card saved-words-card">

@@ -116,6 +116,8 @@ const els = {
   saveWordButton: document.querySelector("#save-word-button"),
   savedWordsCount: document.querySelector("#saved-words-count"),
   savedWordsList: document.querySelector("#saved-words-list"),
+  landingPage: document.querySelector("#landing-page"),
+  authClose: document.querySelector("#auth-close"),
 };
 
 const languageLabels = new Map();
@@ -127,14 +129,14 @@ bootstrap().catch((error) => {
 
 async function bootstrap() {
   attachEvents();
+  attachLandingEvents();
   const session = await fetchJson("/api/session").catch(() => ({ authenticated: false }));
   if (!session.authenticated) {
-    showAuthShell(true);
-    els.authEmail.value = "eleonorashatkovska@gmail.com";
-    switchView("library");
+    showLandingPage(true);
     return;
   }
 
+  showLandingPage(false);
   await initializeAuthenticatedApp(session.profile || null);
 }
 
@@ -189,6 +191,7 @@ function attachEvents() {
 async function initializeAuthenticatedApp(profileOverride = null) {
   state.authenticated = true;
   showAuthShell(false);
+  showLandingPage(false);
 
   const meta = await fetchJson("/api/meta");
   state.appName = meta.appName || "Voxenor";
@@ -223,6 +226,59 @@ async function initializeAuthenticatedApp(profileOverride = null) {
 
 function showAuthShell(visible) {
   els.authShell.classList.toggle("hidden", !visible);
+}
+
+function showLandingPage(visible) {
+  if (els.landingPage) {
+    els.landingPage.classList.toggle("hidden", !visible);
+  }
+  document.querySelector(".app-shell").classList.toggle("hidden", visible);
+  if (visible) {
+    showAuthShell(false);
+  }
+}
+
+function openAuthModal(tab = "login") {
+  showAuthShell(true);
+  switchAuthTab(tab);
+}
+
+function switchAuthTab(tab) {
+  document.querySelectorAll(".auth-tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+  document.querySelector(".auth-pane-login").classList.toggle("active", tab === "login");
+  document.querySelector(".auth-pane-signup").classList.toggle("active", tab === "signup");
+  const switchLogin = document.querySelector(".auth-switch-login");
+  const switchSignup = document.querySelector(".auth-switch-signup");
+  if (switchLogin) switchLogin.classList.toggle("hidden", tab !== "login");
+  if (switchSignup) switchSignup.classList.toggle("hidden", tab !== "signup");
+}
+
+function attachLandingEvents() {
+  const landingButtons = [
+    ["#nav-login", "login"],
+    ["#nav-signup", "signup"],
+    ["#hero-get-started", "signup"],
+    ["#cta-get-started", "signup"],
+  ];
+  for (const [selector, tab] of landingButtons) {
+    const el = document.querySelector(selector);
+    if (el) el.addEventListener("click", () => openAuthModal(tab));
+  }
+  const learnMore = document.querySelector("#hero-learn-more");
+  if (learnMore) {
+    learnMore.addEventListener("click", () => {
+      const section = document.querySelector("#features-section");
+      if (section) section.scrollIntoView({ behavior: "smooth" });
+    });
+  }
+  if (els.authClose) {
+    els.authClose.addEventListener("click", () => showAuthShell(false));
+  }
+  document.querySelectorAll(".auth-tab, .auth-switch-text .link-button").forEach((btn) => {
+    if (btn.dataset.tab) {
+      btn.addEventListener("click", () => switchAuthTab(btn.dataset.tab));
+    }
+  });
 }
 
 function switchView(view) {
@@ -274,7 +330,7 @@ async function handleLogout() {
   els.bookAudio.pause();
   els.bookAudio.removeAttribute("src");
   els.bookAudio.load();
-  showAuthShell(true);
+  showLandingPage(true);
   switchView("library");
   renderLibraryBooks();
   renderSavedWords();
