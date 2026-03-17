@@ -17,12 +17,13 @@ MIN_VOICE_PROMPT_SECONDS = float(os.getenv("MIN_VOICE_PROMPT_SECONDS", "2.4"))
 MASTERING_FILTER_CHAIN = ",".join(
     [
         "highpass=f=55",
-        "lowpass=f=16800",
+        "lowpass=f=17500",
         "equalizer=f=180:t=q:w=0.9:g=0.4",
         "equalizer=f=2400:t=q:w=1.1:g=1.7",
         "equalizer=f=5600:t=q:w=1.2:g=1.7",
         "equalizer=f=8600:t=q:w=0.9:g=1.3",
         "equalizer=f=11200:t=q:w=0.8:g=0.8",
+        "equalizer=f=14000:t=q:w=0.7:g=0.6",
         "deesser=i=0.09:m=0.34:f=0.40:s=o",
         "acompressor=threshold=-21dB:ratio=2.0:attack=8:release=78:makeup=1.8",
         "speechnorm=e=6.3:r=0.00065:l=1",
@@ -592,7 +593,7 @@ def combine_wavs(part_paths: list[Path], output_path: Path, speed: float = 1.0) 
                 "-af",
                 mastering_filter_chain,
                 "-ar",
-                "24000",
+                "48000",
                 "-ac",
                 "1",
                 "-c:a",

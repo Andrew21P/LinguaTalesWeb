@@ -1352,27 +1352,38 @@ function updateGenerationUiFromPage(page) {
       normalizeLanguageCode(state.currentBook?.audiobookLanguage || "pt-pt") &&
     !page.translatedText;
 
+  const willAutoPrepare = !state.currentBook?.skipAudiobook && !page.audioUrl && page.audioStatus !== "running" && page.translationStatus !== "running";
+
   const logs = page.logs?.length
     ? page.logs
-    : [
-        `Translation: ${page.translationStatus || (needsTranslation ? "idle" : "source")}.`,
-        `Audio: ${page.audioStatus || "idle"}.`,
-      ];
+    : willAutoPrepare
+      ? [
+          `Page ${page.index + 1}: queuing for preparation.`,
+          needsTranslation ? "Voxenor will translate first and then generate the narration." : "Generating audio now.",
+        ]
+      : [
+          `Translation: ${page.translationStatus || (needsTranslation ? "idle" : "source")}.`,
+          `Audio: ${page.audioStatus || "idle"}.`,
+        ];
 
   const label =
     page.audioUrl || page.translationStatus === "running" || page.audioStatus === "running"
       ? buildGenerationLabelFromPage(page)
-      : needsTranslation
-        ? "This page still needs PT-PT translation before the audio can be generated."
-        : "This page is ready to generate as audio.";
+      : willAutoPrepare && needsTranslation
+        ? `Starting PT-PT translation for page ${page.index + 1}...`
+        : willAutoPrepare
+          ? `Preparing audio for page ${page.index + 1}...`
+          : needsTranslation
+            ? "This page still needs PT-PT translation before the audio can be generated."
+            : "This page is ready to generate as audio.";
 
   updateGenerationUi({
     label,
-    progress: inferGenerationProgressFromPage(page),
+    progress: willAutoPrepare ? Math.max(8, inferGenerationProgressFromPage(page)) : inferGenerationProgressFromPage(page),
     logs,
   });
   setReaderStageStatus(buildReaderStageLabel(page, needsTranslation), {
-    loading: page.translationStatus === "running" || page.audioStatus === "running",
+    loading: page.translationStatus === "running" || page.audioStatus === "running" || willAutoPrepare,
   });
 }
 
@@ -1520,6 +1531,10 @@ function updateReaderStatusPill() {
   }
   if (state.currentPage.translationStatus === "ready") {
     els.readerStatusPill.textContent = "Text ready";
+    return;
+  }
+  if (!state.currentBook?.skipAudiobook) {
+    els.readerStatusPill.textContent = "Preparing";
     return;
   }
   els.readerStatusPill.textContent = "Idle";
@@ -1719,7 +1734,7 @@ function stopPlaybackTracking() {
 }
 
 function syncPlaybackHighlight() {
-  if (!state.alignmentWordTimings.length || !state.totalWordCount || !els.bookAudio.duration) {
+  if (!state.alignmentWordTimings.length || !state.totalWordCount) {
     return;
   }
 
