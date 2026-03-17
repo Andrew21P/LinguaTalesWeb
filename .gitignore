@@ -10,4 +10,3 @@ __pycache__/
 .venv-arm64/
 .vscode/
 logo_original.png
-public/vox_logo.png
