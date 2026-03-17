@@ -8,6 +8,17 @@ import { promises as fsp } from "node:fs";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
+import bcrypt from "bcrypt";
+import Stripe from "stripe";
+import {
+  createSession, getSession, deleteSession,
+  createUser, getUserByEmail, getUserById, updateUser,
+  getUserByStripeCustomerId,
+  getUserPreferences, setUserPreferences,
+  getSavedWords, addSavedWord, deleteSavedWord,
+  linkBookToUser, unlinkBookFromUser, getUserBookIds, isUserBook,
+  userHasPremium, getUserBookCount,
+} from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,12 +84,18 @@ let piperWorkerQueue = Promise.resolve();
 let piperVoiceCatalogCache = null;
 let piperVoiceCatalogFetchedAt = 0;
 let piperVoiceCatalogPromise = null;
-const appAccountEmail = (process.env.APP_ACCOUNT_EMAIL || "eleonorashatkovska@gmail.com").trim().toLowerCase();
-const appAccountPassword = process.env.APP_ACCOUNT_PASSWORD || "1234";
-const appAccountName = (process.env.APP_ACCOUNT_NAME || "Eleonora Shatkovska").trim();
-const appSessionSecret = process.env.APP_SESSION_SECRET || `${appAccountEmail}:${appAccountPassword}:voxenor`;
 const sessionCookieName = "voxenor_session";
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
+const BCRYPT_ROUNDS = 12;
+const FREE_BOOK_LIMIT = 1;
+const PREMIUM_PRICE_EUR = 19.99;
+
+// Stripe — will be null if keys not configured yet.
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+const stripePriceId = process.env.STRIPE_PRICE_ID || "";
+const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 
 const sourceLanguageCatalog = [
   { code: "auto", label: "Auto Detect" },
@@ -101,44 +118,44 @@ const sourceLanguageCatalog = [
 
 const listenerLanguageCatalog = sourceLanguageCatalog.filter((language) => language.code !== "auto");
 const audiobookLanguageCatalog = [
-  { code: "pt-pt", locale: "pt-PT", label: "Portuguese (Portugal)" },
-  { code: "pt-br", locale: "pt-BR", label: "Portuguese (Brazil)" },
-  { code: "en-us", locale: "en-US", label: "English (US)" },
-  { code: "en-gb", locale: "en-GB", label: "English (UK)" },
-  { code: "es-es", locale: "es-ES", label: "Spanish (Spain)" },
-  { code: "es-mx", locale: "es-MX", label: "Spanish (Mexico)" },
-  { code: "fr-fr", locale: "fr-FR", label: "French" },
-  { code: "de-de", locale: "de-DE", label: "German" },
-  { code: "it-it", locale: "it-IT", label: "Italian" },
+  { code: "ar-jo", locale: "ar-JO", label: "Arabic" },
+  { code: "bg-bg", locale: "bg-BG", label: "Bulgarian" },
+  { code: "ca-es", locale: "ca-ES", label: "Catalan" },
+  { code: "zh-cn", locale: "zh-CN", label: "Chinese (Mandarin)" },
+  { code: "hr-hr", locale: "hr-HR", label: "Croatian" },
+  { code: "cs-cz", locale: "cs-CZ", label: "Czech" },
+  { code: "da-dk", locale: "da-DK", label: "Danish" },
   { code: "nl-nl", locale: "nl-NL", label: "Dutch" },
   { code: "nl-be", locale: "nl-BE", label: "Dutch (Belgium)" },
-  { code: "sv-se", locale: "sv-SE", label: "Swedish" },
-  { code: "no-no", locale: "no-NO", label: "Norwegian" },
-  { code: "da-dk", locale: "da-DK", label: "Danish" },
+  { code: "en-gb", locale: "en-GB", label: "English (UK)" },
+  { code: "en-us", locale: "en-US", label: "English (US)" },
   { code: "fi-fi", locale: "fi-FI", label: "Finnish" },
-  { code: "pl-pl", locale: "pl-PL", label: "Polish" },
-  { code: "ru-ru", locale: "ru-RU", label: "Russian" },
-  { code: "uk-ua", locale: "uk-UA", label: "Ukrainian" },
-  { code: "cs-cz", locale: "cs-CZ", label: "Czech" },
+  { code: "fr-fr", locale: "fr-FR", label: "French" },
+  { code: "ka-ge", locale: "ka-GE", label: "Georgian" },
+  { code: "de-de", locale: "de-DE", label: "German" },
+  { code: "el-gr", locale: "el-GR", label: "Greek" },
+  { code: "hi-in", locale: "hi-IN", label: "Hindi" },
   { code: "hu-hu", locale: "hu-HU", label: "Hungarian" },
+  { code: "is-is", locale: "is-IS", label: "Icelandic" },
+  { code: "it-it", locale: "it-IT", label: "Italian" },
+  { code: "lv-lv", locale: "lv-LV", label: "Latvian" },
+  { code: "no-no", locale: "no-NO", label: "Norwegian" },
+  { code: "fa-ir", locale: "fa-IR", label: "Persian" },
+  { code: "pl-pl", locale: "pl-PL", label: "Polish" },
+  { code: "pt-br", locale: "pt-BR", label: "Portuguese (Brazil)" },
+  { code: "pt-pt", locale: "pt-PT", label: "Portuguese (Portugal)" },
   { code: "ro-ro", locale: "ro-RO", label: "Romanian" },
-  { code: "bg-bg", locale: "bg-BG", label: "Bulgarian" },
+  { code: "ru-ru", locale: "ru-RU", label: "Russian" },
+  { code: "sr-rs", locale: "sr-RS", label: "Serbian" },
   { code: "sk-sk", locale: "sk-SK", label: "Slovak" },
   { code: "sl-si", locale: "sl-SI", label: "Slovenian" },
-  { code: "sr-rs", locale: "sr-RS", label: "Serbian" },
-  { code: "hr-hr", locale: "hr-HR", label: "Croatian" },
-  { code: "el-gr", locale: "el-GR", label: "Greek" },
-  { code: "tr-tr", locale: "tr-TR", label: "Turkish" },
-  { code: "ar-jo", locale: "ar-JO", label: "Arabic" },
-  { code: "fa-ir", locale: "fa-IR", label: "Persian" },
-  { code: "hi-in", locale: "hi-IN", label: "Hindi" },
-  { code: "zh-cn", locale: "zh-CN", label: "Chinese (Mandarin)" },
-  { code: "vi-vn", locale: "vi-VN", label: "Vietnamese" },
-  { code: "ka-ge", locale: "ka-GE", label: "Georgian" },
-  { code: "ca-es", locale: "ca-ES", label: "Catalan" },
-  { code: "is-is", locale: "is-IS", label: "Icelandic" },
-  { code: "lv-lv", locale: "lv-LV", label: "Latvian" },
+  { code: "es-mx", locale: "es-MX", label: "Spanish (Mexico)" },
+  { code: "es-es", locale: "es-ES", label: "Spanish (Spain)" },
   { code: "sw-cd", locale: "sw-CD", label: "Swahili" },
+  { code: "sv-se", locale: "sv-SE", label: "Swedish" },
+  { code: "tr-tr", locale: "tr-TR", label: "Turkish" },
+  { code: "uk-ua", locale: "uk-UA", label: "Ukrainian" },
+  { code: "vi-vn", locale: "vi-VN", label: "Vietnamese" },
 ];
 
 const audiobookLanguageCodes = new Set(audiobookLanguageCatalog.map((l) => l.code));
@@ -260,19 +277,71 @@ const portuguesePortugalPossessiveNouns = [
   "vozes",
 ];
 
-const accountProfile = {
-  email: appAccountEmail,
-  name: appAccountName,
-  nativeLanguages: [
-    normalizeLanguageCode(process.env.APP_ACCOUNT_NATIVE_LANGUAGE_PRIMARY || "ru"),
-    normalizeLanguageCode(process.env.APP_ACCOUNT_NATIVE_LANGUAGE_SECONDARY || "uk"),
-  ].filter(Boolean),
-  fluentLanguages: [normalizeLanguageCode(process.env.APP_ACCOUNT_FLUENT_LANGUAGE || "en")].filter(Boolean),
-  learningLanguage: normalizeLanguageCode(process.env.APP_ACCOUNT_LEARNING_LANGUAGE || "pt-pt"),
-};
+// Per-user preferences are now in the database. Keep a mutable ref for
+// backward compat in functions that still read `userPreferences` (will be
+// overridden per-request where appropriate).
 let userPreferences = loadUserPreferences();
 
 loadVoiceRegistry();
+
+// Stripe webhook needs raw body — mount BEFORE express.json().
+app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  if (!stripe || !stripeWebhookSecret) {
+    return res.status(503).json({ ok: false, error: "Stripe not configured." });
+  }
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], stripeWebhookSecret);
+  } catch (err) {
+    console.error("Stripe webhook signature verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
+        const userId = session.metadata?.userId;
+        if (userId && session.subscription) {
+          const sub = await stripe.subscriptions.retrieve(session.subscription);
+          updateUser(userId, {
+            stripe_subscription_id: session.subscription,
+            subscription_status: sub.status,
+            subscription_current_period_end: sub.current_period_end,
+            plan: sub.status === "active" || sub.status === "trialing" ? "premium" : "free",
+          });
+        }
+        break;
+      }
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const sub = event.data.object;
+        const user = getUserByStripeCustomerId(sub.customer);
+        if (user) {
+          const active = sub.status === "active" || sub.status === "trialing";
+          updateUser(user.id, {
+            stripe_subscription_id: sub.id,
+            subscription_status: sub.status,
+            subscription_current_period_end: sub.current_period_end,
+            plan: active ? "premium" : "free",
+          });
+        }
+        break;
+      }
+      case "invoice.payment_failed": {
+        const invoice = event.data.object;
+        const user = getUserByStripeCustomerId(invoice.customer);
+        if (user) {
+          updateUser(user.id, { subscription_status: "past_due" });
+        }
+        break;
+      }
+    }
+  } catch (err) {
+    console.error("Stripe webhook handler error:", err);
+  }
+  res.json({ received: true });
+});
 
 app.use(express.json({ limit: "8mb" }));
 app.use(
@@ -286,46 +355,93 @@ app.use("/audio", requireSession, express.static(audioDir));
 app.use("/voices", requireSession, express.static(voicesDir));
 app.use("/library-assets", requireSession, express.static(libraryDir));
 
+// ── Auth Routes ─────────────────────────────────────────────
+
 app.get("/api/session", (req, res) => {
   const session = getSessionFromRequest(req);
-  return res.json({
-    ok: true,
-    authenticated: Boolean(session),
-    profile: session ? getPublicProfile() : null,
-  });
-});
-
-app.post("/api/session/login", (req, res) => {
-  const email = String(req.body?.email || "").trim().toLowerCase();
-  const password = String(req.body?.password || "");
-
-  if (email !== appAccountEmail || password !== appAccountPassword) {
-    return res.status(401).json({
-      ok: false,
-      error: "Invalid email or password.",
-    });
+  if (!session) {
+    return res.json({ ok: true, authenticated: false, profile: null });
   }
-
-  const token = createSessionToken(appAccountEmail);
-  setSessionCookie(res, token);
+  const user = getUserById(session.user_id);
+  if (!user) {
+    clearSessionCookie(res);
+    return res.json({ ok: true, authenticated: false, profile: null });
+  }
   return res.json({
     ok: true,
     authenticated: true,
-    profile: getPublicProfile(),
+    profile: getPublicProfile(user),
   });
 });
 
-app.post("/api/session/logout", (_req, res) => {
+app.post("/api/session/signup", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  const name = String(req.body?.name || "").trim();
+
+  if (!email || !email.includes("@")) {
+    return res.status(400).json({ ok: false, error: "Please enter a valid email address." });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
+  }
+  if (getUserByEmail(email)) {
+    return res.status(409).json({ ok: false, error: "An account with this email already exists." });
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const user = createUser({ email, passwordHash, name: name || email.split("@")[0] });
+  const session = createSession(user.id);
+  setSessionCookie(res, session.id, session.expiresAt);
+  return res.json({
+    ok: true,
+    authenticated: true,
+    profile: getPublicProfile(user),
+  });
+});
+
+app.post("/api/session/login", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+
+  const user = getUserByEmail(email);
+  if (!user) {
+    return res.status(401).json({ ok: false, error: "Invalid email or password." });
+  }
+  const match = await bcrypt.compare(password, user.password_hash);
+  if (!match) {
+    return res.status(401).json({ ok: false, error: "Invalid email or password." });
+  }
+
+  const session = createSession(user.id);
+  setSessionCookie(res, session.id, session.expiresAt);
+  return res.json({
+    ok: true,
+    authenticated: true,
+    profile: getPublicProfile(user),
+  });
+});
+
+app.post("/api/session/logout", (req, res) => {
+  const sessionId = getSessionIdFromRequest(req);
+  if (sessionId) deleteSession(sessionId);
   clearSessionCookie(res);
   return res.json({ ok: true });
 });
 
-app.get("/api/meta", requireSession, (_req, res) => {
-  const effectivePreferences = getEffectiveUserPreferences();
-  if (effectivePreferences.selectedVoiceId !== userPreferences.selectedVoiceId) {
-    userPreferences = effectivePreferences;
-    void persistUserPreferences();
-  }
+app.get("/api/meta", requireSession, (req, res) => {
+  const user = req.user;
+  const dbPrefs = getUserPreferences(user.id);
+  const prefs = {
+    sourceLanguage: normalizeLanguageCode(dbPrefs?.source_language || "auto"),
+    listenerLanguage: normalizeLanguageCode(dbPrefs?.listener_language || "en"),
+    audiobookLanguage: normalizeLanguageCode(dbPrefs?.audiobook_language || "pt-pt"),
+    selectedVoiceId: dbPrefs?.selected_voice_id || "storybook",
+  };
+  // Keep global userPreferences in sync for backward compat helpers.
+  userPreferences = { ...userPreferences, ...prefs };
+  const effectivePreferences = getEffectiveUserPreferences(userPreferences);
+  const savedWords = getSavedWords(user.id).map(dbWordToApi);
   res.json({
     ok: true,
     appName,
@@ -334,10 +450,16 @@ app.get("/api/meta", requireSession, (_req, res) => {
     audiobookLanguages: audiobookLanguageCatalog,
     fullySupportedLanguages: audiobookLanguageCatalog,
     voiceSamples: [...builtInVoiceSamples, ...getPublicVoiceSamples()],
-    profile: getPublicProfile(),
+    profile: getPublicProfile(user),
     preferences: effectivePreferences,
-    savedWords: effectivePreferences.savedWords || [],
+    savedWords,
     localAccessUrls: getLocalAccessUrls(port),
+    plan: {
+      current: userHasPremium(user) ? "premium" : "free",
+      freeBookLimit: FREE_BOOK_LIMIT,
+      premiumPriceEur: PREMIUM_PRICE_EUR,
+      stripeConfigured: Boolean(stripe && stripePriceId),
+    },
     defaults: {
       exaggeration: defaultExaggeration,
       narrationSpeed: defaultNarrationSpeed,
@@ -440,18 +562,22 @@ app.post("/api/book/extract", requireSession, upload.single("bookFile"), async (
 
 app.post("/api/preferences", requireSession, async (req, res) => {
   try {
-    const updates = {
-      listenerLanguage: normalizeLanguageCode(req.body?.listenerLanguage || userPreferences.listenerLanguage || "en"),
-      audiobookLanguage: normalizeLanguageCode(req.body?.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt"),
-      sourceLanguage: normalizeLanguageCode(req.body?.sourceLanguage || userPreferences.sourceLanguage || "auto"),
-      selectedVoiceId: String(req.body?.selectedVoiceId || userPreferences.selectedVoiceId || "storybook"),
+    const dbUpdates = {
+      source_language: normalizeLanguageCode(req.body?.sourceLanguage || "auto"),
+      listener_language: normalizeLanguageCode(req.body?.listenerLanguage || "en"),
+      audiobook_language: normalizeLanguageCode(req.body?.audiobookLanguage || "pt-pt"),
+      selected_voice_id: String(req.body?.selectedVoiceId || "storybook"),
     };
+    setUserPreferences(req.user.id, dbUpdates);
 
-    userPreferences = {
-      ...userPreferences,
-      ...updates,
-      updatedAt: new Date().toISOString(),
+    // Keep global userPreferences in sync for backward-compat helpers.
+    const updates = {
+      sourceLanguage: dbUpdates.source_language,
+      listenerLanguage: dbUpdates.listener_language,
+      audiobookLanguage: dbUpdates.audiobook_language,
+      selectedVoiceId: dbUpdates.selected_voice_id,
     };
+    userPreferences = { ...userPreferences, ...updates, updatedAt: new Date().toISOString() };
     userPreferences = getEffectiveUserPreferences(userPreferences);
     await persistUserPreferences();
 
@@ -473,10 +599,10 @@ app.post("/api/preferences", requireSession, async (req, res) => {
   }
 });
 
-app.get("/api/saved-words", requireSession, (_req, res) => {
+app.get("/api/saved-words", requireSession, (req, res) => {
   return res.json({
     ok: true,
-    savedWords: normalizeSavedWords(userPreferences.savedWords),
+    savedWords: getSavedWords(req.user.id).map(dbWordToApi),
   });
 });
 
@@ -490,31 +616,12 @@ app.post("/api/saved-words", requireSession, async (req, res) => {
       });
     }
 
-    const existingIndex = normalizeSavedWords(userPreferences.savedWords).findIndex(
-      (savedWord) =>
-        savedWord.source.toLowerCase() === entry.source.toLowerCase() &&
-        savedWord.translatedText.toLowerCase() === entry.translatedText.toLowerCase() &&
-        savedWord.bookId === entry.bookId &&
-        savedWord.pageIndex === entry.pageIndex
-    );
-
-    const savedWords = normalizeSavedWords(userPreferences.savedWords);
-    if (existingIndex >= 0) {
-      savedWords.splice(existingIndex, 1);
-    }
-    savedWords.unshift(entry);
-
-    userPreferences = {
-      ...userPreferences,
-      savedWords: savedWords.slice(0, 500),
-      updatedAt: new Date().toISOString(),
-    };
-    await persistUserPreferences();
+    addSavedWord(req.user.id, entry);
 
     return res.json({
       ok: true,
       savedWord: entry,
-      savedWords: userPreferences.savedWords,
+      savedWords: getSavedWords(req.user.id).map(dbWordToApi),
     });
   } catch (error) {
     return res.status(500).json({
@@ -527,17 +634,11 @@ app.post("/api/saved-words", requireSession, async (req, res) => {
 app.delete("/api/saved-words/:savedWordId", requireSession, async (req, res) => {
   try {
     const savedWordId = String(req.params.savedWordId || "").trim();
-    const savedWords = normalizeSavedWords(userPreferences.savedWords).filter((entry) => entry.id !== savedWordId);
-    userPreferences = {
-      ...userPreferences,
-      savedWords,
-      updatedAt: new Date().toISOString(),
-    };
-    await persistUserPreferences();
+    deleteSavedWord(req.user.id, savedWordId);
 
     return res.json({
       ok: true,
-      savedWords,
+      savedWords: getSavedWords(req.user.id).map(dbWordToApi),
     });
   } catch (error) {
     return res.status(500).json({
@@ -547,9 +648,19 @@ app.delete("/api/saved-words/:savedWordId", requireSession, async (req, res) => 
   }
 });
 
-app.get("/api/books", requireSession, async (_req, res) => {
+app.get("/api/books", requireSession, async (req, res) => {
   try {
-    const books = await listLibraryBooks();
+    const userBookIds = getUserBookIds(req.user.id);
+    if (!userBookIds.length) {
+      return res.json({ ok: true, books: [] });
+    }
+    const books = (await Promise.all(userBookIds.map(id => readLibraryBook(id))))
+      .filter(Boolean)
+      .sort((a, b) => {
+        const at = Date.parse(a.updatedAt || a.createdAt || 0) || 0;
+        const bt = Date.parse(b.updatedAt || b.createdAt || 0) || 0;
+        return bt - at;
+      });
     return res.json({
       ok: true,
       books: books.map(toPublicBookSummary),
@@ -570,7 +681,19 @@ app.get("/api/books", requireSession, async (_req, res) => {
 
 app.post("/api/books/import", requireSession, upload.single("bookFile"), async (req, res) => {
   try {
+    // Plan gating: free users can only have FREE_BOOK_LIMIT books.
+    if (!userHasPremium(req.user)) {
+      const bookCount = getUserBookCount(req.user.id);
+      if (bookCount >= FREE_BOOK_LIMIT) {
+        return res.status(403).json({
+          ok: false,
+          error: `Free plan allows ${FREE_BOOK_LIMIT} book. Upgrade to Premium for unlimited books.`,
+          upgradeRequired: true,
+        });
+      }
+    }
     const imported = await createLibraryBookFromRequest(req);
+    linkBookToUser(req.user.id, imported.book.id);
     return res.json({
       ok: true,
       existing: Boolean(imported.existing),
@@ -590,6 +713,9 @@ app.post("/api/books/import", requireSession, upload.single("bookFile"), async (
 
 app.delete("/api/books/:bookId", requireSession, async (req, res) => {
   try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
     const bookDir = getLibraryBookDir(req.params.bookId);
     const metadataPath = getLibraryBookMetadataPath(req.params.bookId);
     if (!fs.existsSync(bookDir) && !fs.existsSync(metadataPath)) {
@@ -600,6 +726,7 @@ app.delete("/api/books/:bookId", requireSession, async (req, res) => {
     }
 
     await deleteLibraryBook(req.params.bookId);
+    unlinkBookFromUser(req.user.id, req.params.bookId);
     return res.json({
       ok: true,
       deletedBookId: req.params.bookId,
@@ -1116,6 +1243,17 @@ app.get("/api/discover-search", async (req, res) => {
 });
 
 app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
+  // Plan gating
+  if (!userHasPremium(req.user)) {
+    const bookCount = getUserBookCount(req.user.id);
+    if (bookCount >= FREE_BOOK_LIMIT) {
+      return res.status(403).json({
+        ok: false,
+        error: `Free plan allows ${FREE_BOOK_LIMIT} book. Upgrade to Premium for unlimited books.`,
+        upgradeRequired: true,
+      });
+    }
+  }
   const { title, textUrl, coverUrl } = req.body || {};
   if (!textUrl || !String(textUrl).startsWith("https://www.gutenberg.org/")) {
     return res.status(400).json({ ok: false, error: "Invalid Gutenberg URL." });
@@ -1133,11 +1271,13 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
         sourceLanguage: "en",
         listenerLanguage: req.body.listenerLanguage || userPreferences.listenerLanguage || "en",
         audiobookLanguage: req.body.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt",
+        skipAudiobook: req.body.skipAudiobook || false,
       },
       file: null,
       _gutenbergCoverUrl: coverUrl || "",
     };
     const imported = await createLibraryBookFromRequest(fakeReq);
+    linkBookToUser(req.user.id, imported.book.id);
     return res.json({
       ok: true,
       existing: Boolean(imported.existing),
@@ -1148,6 +1288,69 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
     return res.status(500).json({ ok: false, error: error.message });
   }
 });
+
+// ── Stripe Billing Routes ───────────────────────────────────
+
+app.post("/api/billing/checkout", requireSession, async (req, res) => {
+  if (!stripe || !stripePriceId) {
+    return res.status(503).json({ ok: false, error: "Payments are not configured yet." });
+  }
+  const user = req.user;
+  try {
+    let customerId = user.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({ email: user.email, metadata: { userId: user.id } });
+      customerId = customer.id;
+      updateUser(user.id, { stripe_customer_id: customerId });
+    }
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "subscription",
+      line_items: [{ price: stripePriceId, quantity: 1 }],
+      success_url: `${appBaseUrl}/?upgraded=true`,
+      cancel_url: `${appBaseUrl}/?upgraded=cancelled`,
+      metadata: { userId: user.id },
+    });
+    return res.json({ ok: true, url: session.url });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/api/billing/portal", requireSession, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ ok: false, error: "Payments are not configured yet." });
+  }
+  const user = req.user;
+  if (!user.stripe_customer_id) {
+    return res.status(400).json({ ok: false, error: "No billing account found." });
+  }
+  try {
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripe_customer_id,
+      return_url: `${appBaseUrl}/`,
+    });
+    return res.json({ ok: true, url: session.url });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.get("/api/billing/status", requireSession, (req, res) => {
+  const user = getUserById(req.user.id);
+  return res.json({
+    ok: true,
+    plan: userHasPremium(user) ? "premium" : "free",
+    subscriptionStatus: user.subscription_status || "none",
+    freeBookLimit: FREE_BOOK_LIMIT,
+    booksUsed: getUserBookCount(req.user.id),
+  });
+});
+
+// ── Legal pages ─────────────────────────────────────────────
+
+app.get("/terms", (_req, res) => res.sendFile(path.join(publicDir, "terms.html")));
+app.get("/privacy", (_req, res) => res.sendFile(path.join(publicDir, "privacy.html")));
 
 app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
@@ -2728,13 +2931,26 @@ function applySourceCasing(source, replacement) {
   return replacement;
 }
 
-function getPublicProfile() {
+function getPublicProfile(user) {
   return {
-    email: accountProfile.email,
-    name: accountProfile.name,
-    nativeLanguages: accountProfile.nativeLanguages,
-    fluentLanguages: accountProfile.fluentLanguages,
-    learningLanguage: accountProfile.learningLanguage,
+    email: user.email,
+    name: user.name,
+    plan: userHasPremium(user) ? "premium" : "free",
+  };
+}
+
+function dbWordToApi(row) {
+  return {
+    id: row.id,
+    source: row.source,
+    translatedText: row.translated_text,
+    sourceLanguage: row.source_language,
+    targetLanguage: row.target_language,
+    bookId: row.book_id,
+    bookTitle: row.book_title,
+    pageIndex: row.page_index,
+    context: row.context,
+    createdAt: row.created_at,
   };
 }
 
@@ -2789,7 +3005,7 @@ function loadUserPreferences() {
   const fallback = {
     sourceLanguage: "auto",
     listenerLanguage: normalizeLanguageCode(process.env.APP_ACCOUNT_INTERFACE_LANGUAGE || "en"),
-    audiobookLanguage: accountProfile.learningLanguage || "pt-pt",
+    audiobookLanguage: normalizeLanguageCode(process.env.APP_ACCOUNT_LEARNING_LANGUAGE || "pt-pt"),
     selectedVoiceId: "storybook",
     savedWords: [],
     updatedAt: new Date().toISOString(),
@@ -2883,46 +3099,22 @@ function parseCookies(cookieHeader = "") {
     }, {});
 }
 
-function createSessionToken(email) {
-  const expiresAt = Date.now() + sessionDurationMs;
-  const payload = `${email}|${expiresAt}`;
-  const signature = crypto.createHmac("sha256", appSessionSecret).update(payload).digest("hex");
-  return `${payload}|${signature}`;
+function getSessionIdFromRequest(req) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  return cookies[sessionCookieName] || null;
 }
 
 function getSessionFromRequest(req) {
-  const cookies = parseCookies(req.headers.cookie || "");
-  const token = cookies[sessionCookieName];
-  if (!token) {
-    return null;
-  }
-
-  const [email, expiresAtRaw, signature] = token.split("|");
-  const payload = `${email}|${expiresAtRaw}`;
-  const expectedSignature = crypto.createHmac("sha256", appSessionSecret).update(payload).digest("hex");
-  const expiresAt = Number(expiresAtRaw);
-  if (
-    !email ||
-    email !== appAccountEmail ||
-    !signature ||
-    signature !== expectedSignature ||
-    !Number.isFinite(expiresAt) ||
-    expiresAt < Date.now()
-  ) {
-    return null;
-  }
-
-  return {
-    email,
-    expiresAt,
-  };
+  const sessionId = getSessionIdFromRequest(req);
+  return sessionId ? getSession(sessionId) : null;
 }
 
-function setSessionCookie(res, token) {
-  const maxAge = Math.floor(sessionDurationMs / 1000);
+function setSessionCookie(res, sessionId, expiresAt) {
+  const maxAge = Math.floor((expiresAt - Date.now()) / 1000);
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
-    `${sessionCookieName}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`
+    `${sessionCookieName}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`
   );
 }
 
@@ -2942,7 +3134,14 @@ function requireSession(req, res, next) {
     });
   }
 
+  const user = getUserById(session.user_id);
+  if (!user) {
+    clearSessionCookie(res);
+    return res.status(401).json({ ok: false, error: "Session expired. Please sign in again." });
+  }
+
   req.session = session;
+  req.user = user;
   return next();
 }
 
@@ -3664,6 +3863,7 @@ function toPublicBookSummary(book) {
     sourceType: book.sourceType,
     detectedLanguage: book.detectedLanguage,
     audiobookLanguage: book.audiobookLanguage,
+    skipAudiobook: book.skipAudiobook || false,
     totalPages: book.pages.length,
     createdAt: book.createdAt,
     updatedAt: book.updatedAt,
@@ -3714,6 +3914,7 @@ async function createLibraryBookFromRequest(req) {
   const sourceLanguageHint = normalizeLanguageCode(req.body?.sourceLanguage || userPreferences.sourceLanguage || "auto");
   const listenerLanguage = normalizeLanguageCode(req.body?.listenerLanguage || userPreferences.listenerLanguage || "en");
   const audiobookLanguage = normalizeLanguageCode(req.body?.audiobookLanguage || userPreferences.audiobookLanguage || "pt-pt");
+  const skipAudiobook = Boolean(req.body?.skipAudiobook);
   const sourceFileFingerprint = req.file?.path ? await hashFile(req.file.path).catch(() => "") : "";
   if (sourceFileFingerprint) {
     const existingBook = await findExistingLibraryBook({
@@ -3723,6 +3924,10 @@ async function createLibraryBookFromRequest(req) {
     if (existingBook) {
       if (req.file?.path) {
         await fsp.rm(req.file.path, { force: true }).catch(() => {});
+      }
+      if (existingBook.skipAudiobook !== skipAudiobook) {
+        existingBook.skipAudiobook = skipAudiobook;
+        await persistLibraryBook(existingBook);
       }
       return {
         book: existingBook,
@@ -3754,6 +3959,10 @@ async function createLibraryBookFromRequest(req) {
   if (existingBook) {
     if (req.file?.path) {
       await fsp.rm(req.file.path, { force: true }).catch(() => {});
+    }
+    if (existingBook.skipAudiobook !== skipAudiobook) {
+      existingBook.skipAudiobook = skipAudiobook;
+      await persistLibraryBook(existingBook);
     }
     // Download cover for existing Gutenberg books that lack one
     if (!existingBook.coverUrl && req._gutenbergCoverUrl) {
@@ -3823,6 +4032,7 @@ async function createLibraryBookFromRequest(req) {
     detectedLanguage: normalizeLanguageCode(extraction.detectedLanguage || sourceLanguageHint || "auto"),
     listenerLanguage,
     audiobookLanguage,
+    skipAudiobook,
     contentFingerprint,
     sourceFileFingerprint,
     voiceSampleId: userPreferences.selectedVoiceId || "storybook",

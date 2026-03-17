@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233F0B0D' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/><path d='M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15z'/></svg>" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -283,7 +284,12 @@
             <img src="/logo.png" alt="Voxenor" class="brand-logo brand-logo-footer" width="64" height="64" />
             <span>Voxenor</span>
           </div>
-          <p class="footer-note">Private audio reading room. Self-hosted. Open source.</p>
+          <p class="footer-note">Private audio reading room. Self-hosted.</p>
+          <div class="footer-links">
+            <a href="#" onclick="event.preventDefault(); window.openLegalPage('terms')">Terms of Service</a>
+            <span class="footer-sep">&middot;</span>
+            <a href="#" onclick="event.preventDefault(); window.openLegalPage('privacy')">Privacy Policy</a>
+          </div>
         </div>
       </footer>
     </div>
@@ -337,11 +343,15 @@
             </label>
             <label class="field">
               <span>Choose a password</span>
-              <input id="signup-password" type="password" autocomplete="new-password" placeholder="Create a password" />
+              <input id="signup-password" type="password" autocomplete="new-password" placeholder="Min. 8 characters" />
             </label>
             <label class="field">
               <span>Confirm password</span>
               <input id="signup-confirm" type="password" autocomplete="new-password" placeholder="Repeat your password" />
+            </label>
+            <label class="field field-checkbox">
+              <input id="signup-terms" type="checkbox" />
+              <span>I agree to the <a href="#" onclick="event.preventDefault(); window.openLegalPage('terms')">Terms&nbsp;of&nbsp;Service</a> and <a href="#" onclick="event.preventDefault(); window.openLegalPage('privacy')">Privacy&nbsp;Policy</a></span>
             </label>
             <button id="signup-submit" class="btn btn-primary btn-full" type="button">
               Create my library
@@ -394,7 +404,7 @@
           <section class="library-hero">
             <div class="library-hero-copy">
               <h2 class="library-hero-title">Your Library</h2>
-              <p class="library-hero-desc">Import any book in any language — translate it, generate an audiobook, and read along. All private, all on your server.</p>
+              <p class="library-hero-desc">Import any book in any language, translate it, generate an audiobook, and read along with word-level highlighting.</p>
             </div>
             <div class="library-hero-actions">
               <button id="import-toggle" class="primary-button import-toggle-btn" type="button">
@@ -482,24 +492,35 @@
                 <h3>Discover free books</h3>
               </div>
               <div class="discover-controls">
-                <input id="discover-search" class="discover-search-input" type="text" placeholder="Search by title, author, or subject..." />
+                <label class="discover-search-label" for="discover-search">Search books</label>
+                <div class="discover-search-wrap">
+                  <svg class="discover-search-icon" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12.5 12.5L17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                  <input id="discover-search" class="discover-search-input" type="text" placeholder="Title, author, or subject..." />
+                  <button id="discover-search-clear" class="discover-search-clear hidden" type="button" aria-label="Clear search">
+                    <svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>
+                  </button>
+                </div>
                 <div class="discover-categories">
                   <button class="discover-cat active" data-subject="popular" type="button">Popular</button>
                   <button class="discover-cat" data-subject="fiction" type="button">Fiction</button>
                   <button class="discover-cat" data-subject="science fiction" type="button">Sci-Fi</button>
                   <button class="discover-cat" data-subject="fantasy" type="button">Fantasy</button>
                   <button class="discover-cat" data-subject="mystery" type="button">Mystery</button>
+                  <button class="discover-cat" data-subject="adventure" type="button">Adventure</button>
+                  <button class="discover-cat" data-subject="romance" type="button">Romance</button>
+                  <button class="discover-cat" data-subject="horror" type="button">Horror</button>
                   <button class="discover-cat" data-subject="philosophy" type="button">Philosophy</button>
                   <button class="discover-cat" data-subject="history" type="button">History</button>
                   <button class="discover-cat" data-subject="poetry" type="button">Poetry</button>
+                  <button class="discover-cat" data-subject="children" type="button">Children</button>
                 </div>
               </div>
             </div>
             <div id="discover-grid" class="discover-grid"></div>
           </section>
 
-          <!-- ── Settings Row ── -->
-          <section class="app-settings-row">
+          <!-- ── Settings Row (hidden – legacy voice picker) ── -->
+          <section class="app-settings-row hidden" aria-hidden="true">
             <section id="voice-settings-card" class="card settings-card">
               <div class="section-heading">
                 <div>
@@ -538,7 +559,7 @@
           <div id="discover-modal" class="discover-modal hidden" aria-hidden="true">
             <div class="discover-modal-backdrop"></div>
             <div class="discover-modal-card">
-              <button id="discover-modal-close" class="ghost-button discover-modal-close-btn" type="button" aria-label="Close">
+              <button id="discover-modal-close" class="discover-modal-close-btn" type="button" aria-label="Close">
                 <svg viewBox="0 0 20 20" width="16" height="16"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>
               </button>
               <div class="discover-modal-body">
@@ -550,15 +571,18 @@
                   <p id="discover-modal-subjects" class="discover-modal-meta"></p>
                   <p id="discover-modal-desc" class="discover-modal-desc"></p>
                   <div class="discover-modal-actions">
-                    <label class="field discover-modal-lang-field">
+                    <label class="field discover-modal-lang-field" id="discover-lang-field">
                       <span>Audiobook language</span>
                       <select id="discover-audiobook-language"></select>
+                    </label>
+                    <label class="discover-modal-no-audio-label">
+                      <input type="checkbox" id="discover-no-audiobook" />
+                      <span>I'll just read, no audiobook</span>
                     </label>
                     <button id="discover-modal-add" class="primary-button" type="button">
                       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
                       Add to my library
                     </button>
-                    <a id="discover-modal-link" class="ghost-button" href="#" target="_blank" rel="noopener noreferrer">View on Project Gutenberg</a>
                   </div>
                 </div>
               </div>
@@ -653,6 +677,12 @@
                   <span id="reader-stage-spinner" class="stage-spinner hidden" aria-hidden="true"></span>
                   <span id="reader-stage-message">Open a book from your shelf to start reading.</span>
                 </div>
+                <div class="transport-wing transport-wing-left">
+                  <label class="transport-range-label" title="Volume">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+                    <input id="volume-slider" type="range" min="0" max="1" step="0.05" value="1" class="transport-range">
+                  </label>
+                </div>
                 <div class="transport-controls">
                   <button id="restart-toggle" class="transport-btn" type="button" disabled aria-label="Restart page">
                     <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 12a9 9 0 1 1 9 9" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M3 7v5h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -664,6 +694,9 @@
                   <button id="page-advance" class="transport-btn" type="button" disabled aria-label="Next page">
                     <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 4l10 8-10 8V4z" fill="currentColor"/><rect x="17" y="4" width="2.5" height="16" rx="1" fill="currentColor"/></svg>
                   </button>
+                </div>
+                <div class="transport-wing transport-wing-right">
+                  <button id="speed-toggle" class="transport-speed-btn" type="button" title="Playback speed">1&times;</button>
                 </div>
               </div>
 
@@ -748,6 +781,17 @@
           <button id="confirm-dialog-cancel" type="button" class="confirm-dialog-btn cancel">Cancel</button>
           <button id="confirm-dialog-ok" type="button" class="confirm-dialog-btn danger">Delete</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!--  LEGAL PAGE OVERLAY                                     -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="legal-overlay" class="legal-overlay hidden">
+      <div class="legal-overlay-backdrop" onclick="window.closeLegalPage()"></div>
+      <div class="legal-overlay-card">
+        <button class="legal-overlay-close" onclick="window.closeLegalPage()" aria-label="Close">&times;</button>
+        <div id="legal-overlay-content" class="legal-overlay-content"></div>
       </div>
     </div>
 

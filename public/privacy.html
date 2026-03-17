@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Voxenor</title>
+  <style>
+    :root {
+      --calm: #FEF9EE;
+      --ink: #1a1a1a;
+      --muted: #6b6b6b;
+      --merlot: #3F0B0D;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--calm);
+      color: var(--ink);
+      line-height: 1.7;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--merlot);
+      margin-bottom: 0.5rem;
+    }
+    .updated {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 2rem;
+    }
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    p, ul {
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    ul {
+      padding-left: 1.5rem;
+    }
+    li {
+      margin-bottom: 0.35rem;
+    }
+    a {
+      color: var(--merlot);
+    }
+    .back {
+      display: inline-block;
+      margin-top: 2rem;
+      font-size: 0.9rem;
+      color: var(--merlot);
+      text-decoration: none;
+    }
+    .back:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: March 16, 2026</p>
+
+    <p>This Privacy Policy explains how Voxenor collects, uses, and protects your personal data. We are committed to safeguarding your privacy in compliance with the EU General Data Protection Regulation (GDPR) and applicable laws.</p>
+
+    <h2>1. Data We Collect</h2>
+    <p>When you use Voxenor, we collect and store the following data:</p>
+    <ul>
+      <li><strong>Account information:</strong> Email address, display name, and a securely hashed password (bcrypt, 12 rounds). We never store your password in plain text.</li>
+      <li><strong>Reading data:</strong> Books you import, your reading preferences (language, voice, speed, volume), saved vocabulary words, and current reading position.</li>
+      <li><strong>Billing data:</strong> If you subscribe to Premium, Stripe processes your payment. We store your Stripe customer ID and subscription status, but never your card number or bank details.</li>
+      <li><strong>Session data:</strong> A session cookie to keep you logged in. Sessions expire after 30 days of inactivity.</li>
+    </ul>
+
+    <h2>2. How We Use Your Data</h2>
+    <ul>
+      <li>To provide and operate the Voxenor service.</li>
+      <li>To authenticate your account and maintain your session.</li>
+      <li>To store and sync your reading preferences and vocabulary.</li>
+      <li>To process payments through Stripe for Premium subscriptions.</li>
+    </ul>
+    <p>We do not use your data for advertising, profiling, or any purpose beyond operating the service.</p>
+
+    <h2>3. Cookies</h2>
+    <p>Voxenor uses a single essential cookie (<code>session</code>) required for authentication. We do not use tracking cookies, analytics cookies, or third-party advertising cookies.</p>
+
+    <h2>4. Third-Party Services</h2>
+    <p><strong>Stripe:</strong> Payment processing is handled by Stripe, Inc. When you subscribe to Premium, your payment data is collected and processed by Stripe under their own <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>. We receive only your Stripe customer ID and subscription status.</p>
+    <p><strong>Project Gutenberg:</strong> Book metadata and public-domain texts are fetched from Project Gutenberg's public API when you use the Discover feature. No personal data is shared with Project Gutenberg.</p>
+
+    <h2>5. Data Storage &amp; Security</h2>
+    <p>Your data is stored in a SQLite database on a secured server. Passwords are hashed with bcrypt. Session tokens are cryptographically random. All traffic is encrypted via HTTPS in production.</p>
+
+    <h2>6. Data Retention</h2>
+    <ul>
+      <li>Account data is retained while your account is active.</li>
+      <li>Expired sessions are automatically deleted every hour.</li>
+      <li>If you request account deletion, all your data will be permanently removed within 30 days.</li>
+    </ul>
+
+    <h2>7. Your Rights (GDPR)</h2>
+    <p>If you are located in the European Economic Area, you have the right to:</p>
+    <ul>
+      <li><strong>Access</strong> the personal data we hold about you.</li>
+      <li><strong>Rectify</strong> inaccurate or incomplete data.</li>
+      <li><strong>Erase</strong> your personal data ("right to be forgotten").</li>
+      <li><strong>Restrict processing</strong> of your data in certain circumstances.</li>
+      <li><strong>Data portability</strong> — receive your data in a structured, machine-readable format.</li>
+      <li><strong>Object</strong> to processing of your data.</li>
+    </ul>
+    <p>To exercise any of these rights, contact the administrator of your Voxenor instance.</p>
+
+    <h2>8. Children</h2>
+    <p>Voxenor is not directed at children under 16. We do not knowingly collect personal data from children under 16. If we become aware that we have collected such data, we will delete it promptly.</p>
+
+    <h2>9. Changes to This Policy</h2>
+    <p>We may update this Privacy Policy from time to time. We will notify registered users of material changes via email or in-app notice.</p>
+
+    <h2>10. Contact</h2>
+    <p>For privacy-related questions or to exercise your data rights, please contact the administrator of your Voxenor instance at the email address they have provided.</p>
+
+    <a href="/" class="back">&larr; Back to Voxenor</a>
+  </div>
+</body>
+</html>

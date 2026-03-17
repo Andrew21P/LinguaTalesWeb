@@ -43,6 +43,8 @@ const state = {
   pageOpenRequestToken: 0,
   currentDeletingBookId: "",
   autoplayPending: false,
+  pageDataCache: new Map(),
+  plan: { current: "free", freeBookLimit: 1 },
 };
 
 const els = {
@@ -99,6 +101,8 @@ const els = {
   playToggle: document.querySelector("#play-toggle"),
   restartToggle: document.querySelector("#restart-toggle"),
   pageAdvance: document.querySelector("#page-advance"),
+  volumeSlider: document.querySelector("#volume-slider"),
+  speedToggle: document.querySelector("#speed-toggle"),
   pagePrev: document.querySelector("#page-prev"),
   pageNext: document.querySelector("#page-next"),
   readerStageStatus: document.querySelector("#reader-stage-status"),
@@ -117,6 +121,11 @@ const els = {
   savedWordsList: document.querySelector("#saved-words-list"),
   landingPage: document.querySelector("#landing-page"),
   authClose: document.querySelector("#auth-close"),
+  signupEmail: document.querySelector("#signup-email"),
+  signupPassword: document.querySelector("#signup-password"),
+  signupConfirm: document.querySelector("#signup-confirm"),
+  signupSubmit: document.querySelector("#signup-submit"),
+  signupTerms: document.querySelector("#signup-terms"),
   importToggle: document.querySelector("#import-toggle"),
   importPanel: document.querySelector("#import-panel"),
   importClose: document.querySelector("#import-close"),
@@ -150,6 +159,14 @@ function attachEvents() {
       void handleLogin();
     }
   });
+  if (els.signupSubmit) {
+    els.signupSubmit.addEventListener("click", () => void handleSignup());
+  }
+  if (els.signupConfirm) {
+    els.signupConfirm.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") void handleSignup();
+    });
+  }
   els.logoutButton.addEventListener("click", () => void handleLogout());
   els.homeButton.addEventListener("click", handleOpenLibraryView);
   els.backToLibrary.addEventListener("click", handleOpenLibraryView);
@@ -166,6 +183,21 @@ function attachEvents() {
   els.restartToggle.addEventListener("click", () => void handleRestartCurrentPage());
   els.pageAdvance.addEventListener("click", () => void openAdjacentPage(1));
   els.saveWordButton.addEventListener("click", () => void saveCurrentLookup());
+
+  // Volume slider
+  els.volumeSlider.addEventListener("input", () => {
+    els.bookAudio.volume = Number(els.volumeSlider.value);
+  });
+
+  // Speed toggle — cycle through speeds on click
+  const speedSteps = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  els.speedToggle.addEventListener("click", () => {
+    const current = els.bookAudio.playbackRate;
+    const nextIdx = (speedSteps.indexOf(current) + 1) % speedSteps.length;
+    const speed = speedSteps[nextIdx];
+    els.bookAudio.playbackRate = speed;
+    els.speedToggle.textContent = speed === 1 ? "1\u00D7" : `${speed}\u00D7`;
+  });
 
   if (els.importToggle) {
     els.importToggle.addEventListener("click", () => {
@@ -212,7 +244,12 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   showAuthShell(false);
   showLandingPage(false);
 
-  const meta = await fetchJson("/api/meta");
+  // Fetch meta and books in parallel for instant loading
+  const [meta, booksPayload] = await Promise.all([
+    fetchJson("/api/meta"),
+    fetchJson("/api/books"),
+  ]);
+
   state.appName = meta.appName || "Voxenor";
   state.modelInfo = meta.modelInfo || null;
   state.profile = profileOverride || meta.profile || null;
@@ -220,6 +257,7 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   state.localAccessUrls = meta.localAccessUrls || [];
   state.piperVoices = [];
   state.savedWords = meta.savedWords || [];
+  state.plan = meta.plan || { current: "free", freeBookLimit: 1 };
 
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
@@ -234,13 +272,9 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   renderVoiceShelf(voiceSamples);
   void loadPiperVoiceCatalog();
 
-  els.bookLibrary.innerHTML = '<div class="library-loader"><span class="stage-spinner"></span><span>Loading your books...</span></div>';
-  els.bookLibrary.classList.add("loading-state");
-
-  // Start discover immediately — free books are pre-cached and should appear instantly
+  // Start discover immediately
   initDiscover();
 
-  const booksPayload = await fetchJson("/api/books");
   state.libraryBooks = booksPayload.books || [];
   els.bookLibrary.classList.remove("loading-state");
   renderLibraryBooks();
@@ -335,6 +369,43 @@ async function handleLogin() {
   }
 }
 
+async function handleSignup() {
+  const email = (els.signupEmail?.value || "").trim();
+  const password = els.signupPassword?.value || "";
+  const confirm = els.signupConfirm?.value || "";
+
+  if (!email || !email.includes("@")) {
+    els.authStatus.textContent = "Please enter a valid email address.";
+    return;
+  }
+  if (password.length < 8) {
+    els.authStatus.textContent = "Password must be at least 8 characters.";
+    return;
+  }
+  if (password !== confirm) {
+    els.authStatus.textContent = "Passwords do not match.";
+    return;
+  }
+  if (els.signupTerms && !els.signupTerms.checked) {
+    els.authStatus.textContent = "Please agree to the Terms of Service and Privacy Policy.";
+    return;
+  }
+
+  els.authStatus.textContent = "Creating your account...";
+  try {
+    const payload = await fetchJson("/api/session/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name: email.split("@")[0] }),
+    });
+    if (els.signupPassword) els.signupPassword.value = "";
+    if (els.signupConfirm) els.signupConfirm.value = "";
+    await initializeAuthenticatedApp(payload.profile || null);
+  } catch (error) {
+    els.authStatus.textContent = error.message;
+  }
+}
+
 async function handleLogout() {
   await fetchJson("/api/session/logout", { method: "POST" }).catch(() => {});
   stopPageStatusPolling();
@@ -394,7 +465,8 @@ function renderLanguageOptions(meta) {
 
 function populateSelect(selectNode, options) {
   selectNode.innerHTML = "";
-  options.forEach((option) => {
+  const sorted = [...options].sort((a, b) => a.label.localeCompare(b.label));
+  sorted.forEach((option) => {
     const element = document.createElement("option");
     element.value = option.code;
     element.textContent = option.label;
@@ -423,12 +495,18 @@ function renderProfile(profile, localAccessUrls) {
     return;
   }
 
-  const nativeLabels = (profile.nativeLanguages || []).map(getLanguageLabel).join(" + ");
-  const fluentLabels = (profile.fluentLanguages || []).map(getLanguageLabel).join(", ");
   const displayName = profile.name || profile.email || "Reader";
-  els.profileName.textContent = displayName;
+  const planLabel = (profile.plan === "premium") ? "Premium" : "Free";
+  const planBadge = `<span class="plan-badge plan-badge-${profile.plan || 'free'}">${planLabel}</span>`;
+  els.profileName.innerHTML = `${escapeHtml(displayName)} ${planBadge}`;
   if (els.topbarUserName) els.topbarUserName.textContent = displayName;
-  els.profileDetails.textContent = `Native: ${nativeLabels || "Unknown"}. Fluent: ${fluentLabels || "Unknown"}. Learning: ${getLanguageLabel(profile.learningLanguage || "pt-pt")}.`;
+
+  const billingHtml = (profile.plan === "premium")
+    ? `<button class="link-button" onclick="handleManageBillingClick()">Manage subscription</button>`
+    : `<button class="link-button" onclick="handleUpgradeClick()">Upgrade to Premium — €19.99/month</button>`;
+  els.profileDetails.innerHTML = `${escapeHtml(profile.email)}<br/>${billingHtml}`;
+  window.handleManageBillingClick = handleManageBillingClick;
+
   els.networkList.innerHTML = (localAccessUrls || [])
     .map((url) => `<span>${escapeHtml(url)}</span>`)
     .join("");
@@ -615,7 +693,11 @@ async function handleBookImport(event) {
     els.bookTitle.value = "";
     await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
   } catch (error) {
-    setBookStatus(error.message, true);
+    if (error.upgradeRequired) {
+      setBookStatus(`${error.message} <button onclick="handleUpgradeClick()" class="link-button" style="text-decoration:underline">Upgrade now</button>`, true);
+    } else {
+      setBookStatus(error.message, true);
+    }
   } finally {
     setBookImportState(false);
   }
@@ -680,11 +762,16 @@ function renderReaderShell() {
   const totalPages = state.currentBook?.totalPages || state.currentBook?.pages?.length || 0;
   const currentPageNumber = hasBook ? state.currentPageIndex + 1 : 0;
   const percent = hasBook ? getBookProgressPercent(state.currentBook) : 0;
+  const isReadOnly = hasBook && state.currentBook.skipAudiobook;
+
+  document.querySelector("#reader-view")?.classList.toggle("read-only-mode", isReadOnly);
 
   els.readerBookCover.innerHTML = hasBook ? renderCoverMarkup(state.currentBook.coverUrl, state.currentBook.title) : "VX";
   els.readerBookTitle.textContent = hasBook ? state.currentBook.title : "Select a book";
   els.readerBookMeta.textContent = hasBook
-    ? `${totalPages} pages · ${getLanguageLabel(state.currentBook.detectedLanguage)} -> ${getLanguageLabel(state.currentBook.audiobookLanguage)}`
+    ? isReadOnly
+      ? `${totalPages} pages · ${getLanguageLabel(state.currentBook.detectedLanguage)} · Read-only`
+      : `${totalPages} pages · ${getLanguageLabel(state.currentBook.detectedLanguage)} -> ${getLanguageLabel(state.currentBook.audiobookLanguage)}`
     : "Open a book from your shelf to begin.";
   els.readerProgressLabel.textContent = `${Math.round(percent)}%`;
   els.readerPageLabel.textContent = hasBook ? `Page ${currentPageNumber} of ${totalPages}` : "Page 0 of 0";
@@ -715,7 +802,10 @@ function renderReaderShell() {
 
 async function loadLibraryBook(bookId, pageIndex = 0, options = {}) {
   state.loadingBookId = bookId;
+  state.pageDataCache.clear();
   renderLibraryBooks();
+  // Clear read-only-mode immediately so it doesn't persist from a previous book.
+  document.querySelector("#reader-view")?.classList.remove("read-only-mode");
   switchView("reader");
   showReaderPageOverlay("Opening book...", "Loading your book from the shelf.");
   setReaderStageStatus("Opening book...", { loading: true });
@@ -740,19 +830,32 @@ async function openBookPage(pageIndex, options = {}) {
   }
 
   const safePageIndex = Math.max(0, Math.min((state.currentBook.pages || []).length - 1, pageIndex));
+  const pageSummary = state.currentBook.pages?.[safePageIndex];
+  const pageAlreadyReady = pageSummary?.ready;
 
   const requestToken = state.pageOpenRequestToken + 1;
   state.pageOpenRequestToken = requestToken;
   state.autoplayPending = Boolean(options.autoplay);
-  showReaderPageOverlay(`Opening page ${safePageIndex + 1}...`, "Voxenor is loading the text and current page state.");
-  setReaderStageStatus(`Opening page ${safePageIndex + 1}...`, { loading: true });
+  if (!pageAlreadyReady && !options.autoplay) {
+    showReaderPageOverlay(`Opening page ${safePageIndex + 1}...`, "Voxenor is loading the text and current page state.");
+    setReaderStageStatus(`Opening page ${safePageIndex + 1}...`, { loading: true });
+  }
 
   try {
-    const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${safePageIndex}`);
+    const cacheKey = `${state.currentBook.id}:${safePageIndex}`;
+    const cachedPage = state.pageDataCache.get(cacheKey);
+    let page;
+    if (cachedPage) {
+      state.pageDataCache.delete(cacheKey);
+      page = cachedPage;
+    } else {
+      const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${safePageIndex}`);
+      page = payload.page;
+    }
     if (requestToken !== state.pageOpenRequestToken) {
       return;
     }
-    applyBookPage(state.currentBook, payload.page, options);
+    applyBookPage(state.currentBook, page, options);
     await saveProgress();
   } catch (error) {
     if (requestToken !== state.pageOpenRequestToken) {
@@ -787,6 +890,18 @@ function applyBookPage(book, page, options = {}) {
   state.alignmentWordTimings = buildAlignmentWordTimings(state.alignmentSegments);
   state.lastHighlightedGlobalIndex = -1;
   state.followPlayback = true;
+
+  // Sync language dropdowns to this book's settings so pills and pipeline reflect the actual book.
+  if (book.detectedLanguage) {
+    els.bookLanguage.value = book.detectedLanguage;
+  }
+  if (book.audiobookLanguage) {
+    els.audiobookLanguage.value = book.audiobookLanguage;
+  }
+  if (book.listenerLanguage) {
+    els.listenerLanguage.value = book.listenerLanguage;
+  }
+
   syncBookSummaryPage(page);
   renderReaderShell();
   renderCurrentReaderContent(page.displayText || page.sourceText || "");
@@ -802,6 +917,9 @@ function applyBookPage(book, page, options = {}) {
     if (!sameAudioUrl) {
       state._pendingPlayRequest = false;
       els.bookAudio.src = page.audioUrl;
+      // Preserve user's speed/volume when switching tracks.
+      els.bookAudio.playbackRate = parseFloat(els.speedToggle.textContent) || 1;
+      els.bookAudio.volume = Number(els.volumeSlider.value);
       const resumeTime = preservePlaybackState
         ? previousAudioTime
         : book.progress?.pageIndex === page.index && Number.isFinite(book.progress?.audioTime)
@@ -931,6 +1049,10 @@ function getPageTextByRole(pageRole) {
 
 async function maybeAutoPrepareCurrentPage() {
   if (!state.currentBook || !state.currentPage) {
+    return;
+  }
+
+  if (state.currentBook.skipAudiobook) {
     return;
   }
 
@@ -1250,7 +1372,7 @@ function updateGenerationUiFromPage(page) {
     logs,
   });
   setReaderStageStatus(buildReaderStageLabel(page, needsTranslation), {
-    loading: page.translationStatus === "running" || page.audioStatus === "running" || state.pageOpening,
+    loading: page.translationStatus === "running" || page.audioStatus === "running",
   });
 }
 
@@ -1467,6 +1589,7 @@ async function warmUpcomingPagesFromCurrent() {
   }
   state.lastWarmWindowKey = warmKey;
 
+  // Trigger server-side look-ahead preparation for upcoming pages.
   await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}/prepare`, {
     method: "POST",
     headers: {
@@ -1476,6 +1599,30 @@ async function warmUpcomingPagesFromCurrent() {
       voiceSampleId: state.selectedVoice.id,
     }),
   }).catch(() => {});
+
+  // Refresh full book data so page `ready` flags are up to date for seamless transitions.
+  try {
+    const payload = await fetchJson(`/api/books/${state.currentBook.id}`);
+    if (payload.book && state.currentBook?.id === payload.book.id) {
+      state.currentBook = { ...state.currentBook, ...payload.book };
+      renderLibraryBooks();
+    }
+  } catch {
+    // Not critical — pages will still load, just might briefly show the overlay.
+  }
+
+  // Pre-fetch the next few pages' full data so page transitions are instant.
+  const bookId = state.currentBook.id;
+  const totalPages = state.currentBook.pages?.length || 0;
+  for (let offset = 1; offset <= 3; offset++) {
+    const idx = state.currentPageIndex + offset;
+    if (idx >= totalPages) break;
+    const cacheKey = `${bookId}:${idx}`;
+    if (state.pageDataCache.has(cacheKey)) continue;
+    fetchJson(`/api/books/${bookId}/pages/${idx}`).then(payload => {
+      if (payload.page) state.pageDataCache.set(cacheKey, payload.page);
+    }).catch(() => {});
+  }
 }
 
 async function handlePlayToggle() {
@@ -1529,7 +1676,7 @@ async function handleAudioEnded() {
     return;
   }
 
-  await openBookPage(nextPageIndex, { turnDirection: "forward", autoplay: true, preferPreview: true });
+  await openBookPage(nextPageIndex, { turnDirection: "forward", autoplay: true });
   if (els.bookAudio.src) {
     if (els.bookAudio.paused) {
       await els.bookAudio.play().catch(() => {});
@@ -1666,18 +1813,18 @@ function handleReaderManualScroll() {
 }
 
 function animatePageTurn(direction) {
-  els.readerPage.classList.remove("turn-forward", "turn-backward");
+  els.readerContent.classList.remove("page-enter-forward", "page-enter-backward");
   window.clearTimeout(state.readerTurnTimer);
   if (!direction) {
     return;
   }
-  const className = direction === "backward" ? "turn-backward" : "turn-forward";
-  requestAnimationFrame(() => {
-    els.readerPage.classList.add(className);
-    state.readerTurnTimer = window.setTimeout(() => {
-      els.readerPage.classList.remove(className);
-    }, 440);
-  });
+  const className = direction === "backward" ? "page-enter-backward" : "page-enter-forward";
+  // Force reflow so the animation restarts even if called rapidly.
+  void els.readerContent.offsetWidth;
+  els.readerContent.classList.add(className);
+  state.readerTurnTimer = window.setTimeout(() => {
+    els.readerContent.classList.remove(className);
+  }, 340);
 }
 
 function scheduleProgressSave() {
@@ -2105,6 +2252,7 @@ function truncate(value, maxLength) {
 const discoverEls = {
   grid: document.querySelector("#discover-grid"),
   search: document.querySelector("#discover-search"),
+  searchClear: document.querySelector("#discover-search-clear"),
   modal: document.querySelector("#discover-modal"),
   modalClose: document.querySelector("#discover-modal-close"),
   modalBackdrop: document.querySelector(".discover-modal-backdrop"),
@@ -2115,7 +2263,8 @@ const discoverEls = {
   modalSubjects: document.querySelector("#discover-modal-subjects"),
   modalDesc: document.querySelector("#discover-modal-desc"),
   modalAdd: document.querySelector("#discover-modal-add"),
-  modalLink: document.querySelector("#discover-modal-link"),
+  modalNoAudiobook: document.querySelector("#discover-no-audiobook"),
+  modalLangField: document.querySelector("#discover-lang-field"),
   modalAudiobookLang: document.querySelector("#discover-audiobook-language"),
 };
 
@@ -2138,6 +2287,7 @@ function initDiscover() {
     discoverEls.search.addEventListener("input", () => {
       clearTimeout(discoverSearchTimeout);
       const query = discoverEls.search.value.trim();
+      discoverEls.searchClear?.classList.toggle("hidden", !query);
       if (!query) {
         const activeCat = document.querySelector(".discover-cat.active");
         void loadDiscoverBooks(activeCat?.dataset.subject || "popular");
@@ -2150,9 +2300,29 @@ function initDiscover() {
     });
   }
 
+  if (discoverEls.searchClear) {
+    discoverEls.searchClear.addEventListener("click", () => {
+      discoverEls.search.value = "";
+      discoverEls.searchClear.classList.add("hidden");
+      const activeCat = document.querySelector(".discover-cat.active");
+      if (!activeCat) {
+        document.querySelector('.discover-cat[data-subject="popular"]')?.classList.add("active");
+      }
+      void loadDiscoverBooks(activeCat?.dataset.subject || "popular");
+      discoverEls.search.focus();
+    });
+  }
+
   if (discoverEls.modalClose) discoverEls.modalClose.addEventListener("click", closeDiscoverModal);
   if (discoverEls.modalBackdrop) discoverEls.modalBackdrop.addEventListener("click", closeDiscoverModal);
   if (discoverEls.modalAdd) discoverEls.modalAdd.addEventListener("click", handleAddDiscoverBook);
+  if (discoverEls.modalNoAudiobook) {
+    discoverEls.modalNoAudiobook.addEventListener("change", () => {
+      if (discoverEls.modalLangField) {
+        discoverEls.modalLangField.style.display = discoverEls.modalNoAudiobook.checked ? "none" : "";
+      }
+    });
+  }
 
   void loadDiscoverBooks("popular", 1);
 }
@@ -2213,7 +2383,7 @@ async function searchDiscoverBooks(query, page = 1) {
 
 function showDiscoverLoading() {
   discoverEls.grid.classList.add("loading-state");
-  discoverEls.grid.innerHTML = '<div class="library-loader"><span class="stage-spinner"></span><span>Fetching books from Project Gutenberg...</span></div>';
+  discoverEls.grid.innerHTML = '<div class="library-loader"><span class="stage-spinner"></span><span>Loading books...</span></div>';
 }
 
 function renderDiscoverGrid(books, append = false) {
@@ -2289,7 +2459,13 @@ function openDiscoverModal(book) {
   discoverEls.modalYear.textContent = "";
   discoverEls.modalSubjects.textContent = book.subjects.length ? book.subjects.join(" · ") : "";
   discoverEls.modalDesc.textContent = book.summary || "No description available.";
-  discoverEls.modalLink.href = `https://www.gutenberg.org/ebooks/${book.id}`;
+
+  if (discoverEls.modalNoAudiobook) {
+    discoverEls.modalNoAudiobook.checked = false;
+  }
+  if (discoverEls.modalLangField) {
+    discoverEls.modalLangField.style.display = "";
+  }
 
   discoverEls.modal.classList.remove("hidden");
   discoverEls.modal.setAttribute("aria-hidden", "false");
@@ -2325,6 +2501,7 @@ async function handleAddDiscoverBook() {
         coverUrl: book.coverUrl || "",
         audiobookLanguage: discoverEls.modalAudiobookLang?.value || els.audiobookLanguage.value,
         listenerLanguage: els.listenerLanguage.value,
+        skipAudiobook: discoverEls.modalNoAudiobook?.checked || false,
       }),
     });
     upsertLibraryBook(payload.book);
@@ -2334,7 +2511,7 @@ async function handleAddDiscoverBook() {
     closeDiscoverModal();
     await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
   } catch (error) {
-    btn.textContent = error.message || "Failed — try again";
+    btn.textContent = error.upgradeRequired ? "Upgrade to Premium for unlimited books" : (error.message || "Failed — try again");
   } finally {
     btn.disabled = false;
     setTimeout(() => {
@@ -2392,6 +2569,72 @@ function showConfirmDialog({ title = "Are you sure?", message = "", okLabel = "C
   });
 }
 
+// ── Plan & Billing ──────────────────────────────────────────
+
+async function handleUpgradeClick() {
+  try {
+    const payload = await fetchJson("/api/billing/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (payload.url) window.location.href = payload.url;
+  } catch (error) {
+    alert(error.message || "Could not open checkout. Try again.");
+  }
+}
+window.handleUpgradeClick = handleUpgradeClick;
+
+async function handleManageBillingClick() {
+  try {
+    const payload = await fetchJson("/api/billing/portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (payload.url) window.location.href = payload.url;
+  } catch (error) {
+    alert(error.message || "Could not open billing portal.");
+  }
+}
+
+// ── Legal pages (inline overlay) ──────────────────────────
+
+const legalCache = {};
+
+async function openLegalPage(page) {
+  const overlay = document.getElementById("legal-overlay");
+  const content = document.getElementById("legal-overlay-content");
+  if (!overlay || !content) return;
+
+  if (!legalCache[page]) {
+    try {
+      const res = await fetch(`/${page}`);
+      const html = await res.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const container = doc.querySelector(".container");
+      // Remove the "back" link since we have a close button
+      const backLink = container?.querySelector(".back");
+      if (backLink) backLink.remove();
+      legalCache[page] = container?.innerHTML || html;
+    } catch {
+      legalCache[page] = `<h1>Could not load page</h1><p>Please try again later.</p>`;
+    }
+  }
+
+  content.innerHTML = legalCache[page];
+  overlay.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeLegalPage() {
+  const overlay = document.getElementById("legal-overlay");
+  if (overlay) overlay.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+window.openLegalPage = openLegalPage;
+window.closeLegalPage = closeLegalPage;
+
 async function fetchJson(url, options) {
   let response;
   try {
@@ -2401,7 +2644,9 @@ async function fetchJson(url, options) {
   }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `Request failed with status ${response.status}.`);
+    const err = new Error(payload.error || `Request failed with status ${response.status}.`);
+    err.upgradeRequired = Boolean(payload.upgradeRequired);
+    throw err;
   }
   return payload;
 }
