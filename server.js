@@ -10,6 +10,8 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import bcrypt from "bcrypt";
 import Stripe from "stripe";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import {
   createSession, getSession, deleteSession,
   createUser, getUserByEmail, getUserById, updateUser,
@@ -284,6 +286,46 @@ let userPreferences = loadUserPreferences();
 
 loadVoiceRegistry();
 
+// ── Security middleware ──────────────────────────────────────
+
+const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https://www.gutenberg.org", "https://covers.openlibrary.org"],
+      connectSrc: ["'self'"],
+    },
+  },
+}));
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "Too many attempts. Please try again later." },
+});
+
+function sanitizeErrorMessage(error) {
+  const msg = error?.message || "An unexpected error occurred.";
+  if (/\/|\\|ENOENT|EACCES|TypeError|ReferenceError|SyntaxError/i.test(msg)) {
+    return "An unexpected error occurred. Please try again.";
+  }
+  return msg;
+}
+
+function validateBookId(req, res, next) {
+  if (!UUID_RE.test(req.params.bookId)) {
+    return res.status(400).json({ ok: false, error: "Invalid book ID." });
+  }
+  return next();
+}
+
 // Stripe webhook needs raw body — mount BEFORE express.json().
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   if (!stripe || !stripeWebhookSecret) {
@@ -343,7 +385,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   res.json({ received: true });
 });
 
-app.use(express.json({ limit: "8mb" }));
+app.use(express.json({ limit: "1mb" }));
 app.use(
   express.static(publicDir, {
     setHeaders(res) {
@@ -374,7 +416,7 @@ app.get("/api/session", (req, res) => {
   });
 });
 
-app.post("/api/session/signup", async (req, res) => {
+app.post("/api/session/signup", authLimiter, async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
   const name = String(req.body?.name || "").trim();
@@ -400,7 +442,7 @@ app.post("/api/session/signup", async (req, res) => {
   });
 });
 
-app.post("/api/session/login", async (req, res) => {
+app.post("/api/session/login", authLimiter, async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
 
@@ -487,7 +529,7 @@ app.get("/api/piper/voices", requireSession, async (_req, res) => {
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -556,7 +598,7 @@ app.post("/api/book/extract", requireSession, upload.single("bookFile"), async (
     }
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -598,7 +640,7 @@ app.post("/api/preferences", requireSession, async (req, res) => {
         : 500;
     return res.status(statusCode).json({
       ok: false,
-      error: error.message,
+      error: statusCode === 400 ? error.message : sanitizeErrorMessage(error),
     });
   }
 });
@@ -630,7 +672,7 @@ app.post("/api/saved-words", requireSession, async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -647,7 +689,7 @@ app.delete("/api/saved-words/:savedWordId", requireSession, async (req, res) => 
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -678,7 +720,7 @@ app.get("/api/books", requireSession, async (req, res) => {
         : 500;
     return res.status(statusCode).json({
       ok: false,
-      error: error.message,
+      error: statusCode === 400 ? error.message : sanitizeErrorMessage(error),
     });
   }
 });
@@ -710,12 +752,12 @@ app.post("/api/books/import", requireSession, upload.single("bookFile"), async (
     }
     return res.status(400).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
 
-app.delete("/api/books/:bookId", requireSession, async (req, res) => {
+app.delete("/api/books/:bookId", requireSession, validateBookId, async (req, res) => {
   try {
     if (!isUserBook(req.user.id, req.params.bookId)) {
       return res.status(404).json({ ok: false, error: "That book was not found." });
@@ -744,13 +786,16 @@ app.delete("/api/books/:bookId", requireSession, async (req, res) => {
         : 500;
     return res.status(statusCode).json({
       ok: false,
-      error: error.message,
+      error: statusCode === 400 ? error.message : sanitizeErrorMessage(error),
     });
   }
 });
 
-app.get("/api/books/:bookId", requireSession, async (req, res) => {
+app.get("/api/books/:bookId", requireSession, validateBookId, async (req, res) => {
   try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
     const book = await readLibraryBook(req.params.bookId);
     if (!book) {
       return res.status(404).json({
@@ -766,13 +811,16 @@ app.get("/api/books/:bookId", requireSession, async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
 
-app.get("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, res) => {
+app.get("/api/books/:bookId/pages/:pageIndex", requireSession, validateBookId, async (req, res) => {
   try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
     const book = await readLibraryBook(req.params.bookId);
     if (!book) {
       return res.status(404).json({
@@ -788,13 +836,16 @@ app.get("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, res) 
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
 
-app.delete("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, res) => {
+app.delete("/api/books/:bookId/pages/:pageIndex", requireSession, validateBookId, async (req, res) => {
   try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
     const result = await deleteLibraryBookPage(req.params.bookId, Number(req.params.pageIndex));
     return res.json({
       ok: true,
@@ -805,13 +856,16 @@ app.delete("/api/books/:bookId/pages/:pageIndex", requireSession, async (req, re
     const statusCode = error.message.includes("not found") ? 404 : 400;
     return res.status(statusCode).json({
       ok: false,
-      error: error.message,
+      error: statusCode === 404 ? error.message : sanitizeErrorMessage(error),
     });
   }
 });
 
-app.post("/api/books/:bookId/progress", requireSession, async (req, res) => {
+app.post("/api/books/:bookId/progress", requireSession, validateBookId, async (req, res) => {
   try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
     const book = await readLibraryBook(req.params.bookId);
     if (!book) {
       return res.status(404).json({
@@ -837,13 +891,16 @@ app.post("/api/books/:bookId/progress", requireSession, async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
 
-app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, async (req, res) => {
+app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, validateBookId, async (req, res) => {
   try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
     const prepared = await startLibraryBookPagePreparation({
       bookId: req.params.bookId,
       pageIndex: Number(req.params.pageIndex),
@@ -865,7 +922,7 @@ app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, async (r
         : 500;
     return res.status(statusCode).json({
       ok: false,
-      error: error.message,
+      error: statusCode === 400 ? error.message : sanitizeErrorMessage(error),
     });
   }
 });
@@ -920,7 +977,7 @@ app.post("/api/voice-sample", requireSession, upload.single("voiceSample"), asyn
     ]);
     return res.status(400).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -928,7 +985,7 @@ app.post("/api/voice-sample", requireSession, upload.single("voiceSample"), asyn
 app.delete("/api/voice-sample/:voiceSampleId", requireSession, async (req, res) => {
   try {
     const voiceSampleId = String(req.params.voiceSampleId || "").trim();
-    if (!voiceSampleId) {
+    if (!voiceSampleId || !UUID_RE.test(voiceSampleId)) {
       return res.status(400).json({
         ok: false,
         error: "A voice sample id is required.",
@@ -959,7 +1016,7 @@ app.delete("/api/voice-sample/:voiceSampleId", requireSession, async (req, res) 
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -1061,6 +1118,9 @@ app.post("/api/audiobook/generate", requireSession, async (req, res) => {
 
 app.get("/api/audiobook/status/:jobId", requireSession, async (req, res) => {
   const jobId = req.params.jobId;
+  if (!UUID_RE.test(jobId)) {
+    return res.status(400).json({ ok: false, error: "Invalid job ID." });
+  }
   const memoryJob = jobs.get(jobId);
   if (memoryJob) {
     return res.json({ ok: true, job: memoryJob });
@@ -1091,6 +1151,13 @@ app.post("/api/translate", requireSession, async (req, res) => {
       });
     }
 
+    if (text.length > 50000) {
+      return res.status(413).json({
+        ok: false,
+        error: "Text is too long for translation. Please use a shorter selection.",
+      });
+    }
+
     const result = await translateText({
       text,
       source,
@@ -1110,7 +1177,7 @@ app.post("/api/translate", requireSession, async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       ok: false,
-      error: error.message,
+      error: sanitizeErrorMessage(error),
     });
   }
 });
@@ -1210,7 +1277,7 @@ prefetchAllDiscoverCategories();
 // Refresh every 24h
 setInterval(prefetchAllDiscoverCategories, DISCOVER_TTL);
 
-app.get("/api/discover/:topic", async (req, res) => {
+app.get("/api/discover/:topic", requireSession, async (req, res) => {
   const topic = req.params.topic;
   const page = Math.max(1, parseInt(req.query.page) || 1);
   try {
@@ -1221,7 +1288,7 @@ app.get("/api/discover/:topic", async (req, res) => {
   }
 });
 
-app.get("/api/discover-search", async (req, res) => {
+app.get("/api/discover-search", requireSession, async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.json({ ok: true, books: [], hasMore: false, total: 0, page: 1 });
   const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -1259,7 +1326,12 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
     }
   }
   const { title, textUrl, coverUrl } = req.body || {};
-  if (!textUrl || !String(textUrl).startsWith("https://www.gutenberg.org/")) {
+  try {
+    const parsedUrl = new URL(String(textUrl || ""));
+    if (parsedUrl.hostname !== "www.gutenberg.org" || parsedUrl.protocol !== "https:") {
+      return res.status(400).json({ ok: false, error: "Invalid Gutenberg URL." });
+    }
+  } catch {
     return res.status(400).json({ ok: false, error: "Invalid Gutenberg URL." });
   }
   try {
@@ -1289,7 +1361,7 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
       page: toPublicBookPage(imported.book, imported.book.progress?.pageIndex || 0),
     });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message });
+    return res.status(500).json({ ok: false, error: sanitizeErrorMessage(error) });
   }
 });
 
@@ -1347,7 +1419,7 @@ app.post("/api/billing/checkout", requireSession, async (req, res) => {
     });
     return res.json({ ok: true, url: session.url });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message });
+    return res.status(500).json({ ok: false, error: sanitizeErrorMessage(error) });
   }
 });
 
@@ -1366,7 +1438,7 @@ app.post("/api/billing/portal", requireSession, async (req, res) => {
     });
     return res.json({ ok: true, url: session.url });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message });
+    return res.status(500).json({ ok: false, error: sanitizeErrorMessage(error) });
   }
 });
 
@@ -2407,9 +2479,11 @@ function splitIntoChapters(text) {
   });
 }
 
+const ALLOWED_AUDIO_EXTENSIONS = new Set([".wav", ".mp3", ".webm", ".m4a", ".ogg", ".flac", ".aac"]);
+
 function extensionForMime(mime, originalName) {
   const ext = path.extname(originalName || "").toLowerCase();
-  if (ext) {
+  if (ext && ALLOWED_AUDIO_EXTENSIONS.has(ext)) {
     return ext;
   }
   if (mime === "audio/webm") {
