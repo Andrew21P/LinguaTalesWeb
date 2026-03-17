@@ -3304,6 +3304,11 @@ h3 {
 .profile-save-status.is-error { color: var(--merlot); }
 .profile-save-status.is-ok { color: var(--forest); }
 
+.profile-save-row-bottom {
+  border-top: 1px solid var(--line);
+  padding-top: 1.2rem;
+}
+
 .btn-sm {
   padding: 0.55rem 1.1rem;
   font-size: 0.85rem;
