@@ -3328,7 +3328,9 @@ h3 {
 }
 .plan-card.plan-card-active {
   border-color: var(--forest);
-  box-shadow: 0 0 0 1px var(--forest), var(--shadow-sm);
+  background: rgba(38, 52, 43, 0.07);
+  box-shadow: 0 0 0 2px var(--forest), var(--shadow-md);
+  transform: scale(1.03);
 }
 .plan-card.plan-card-recommended {
   border-color: var(--merlot);
