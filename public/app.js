@@ -103,6 +103,7 @@ const els = {
   pageAdvance: document.querySelector("#page-advance"),
   volumeSlider: document.querySelector("#volume-slider"),
   speedToggle: document.querySelector("#speed-toggle"),
+  fontSizeToggle: document.querySelector("#font-size-toggle"),
   pagePrev: document.querySelector("#page-prev"),
   pageNext: document.querySelector("#page-next"),
   readerStageStatus: document.querySelector("#reader-stage-status"),
@@ -197,6 +198,23 @@ function attachEvents() {
     const speed = speedSteps[nextIdx];
     els.bookAudio.playbackRate = speed;
     els.speedToggle.textContent = speed === 1 ? "1\u00D7" : `${speed}\u00D7`;
+  });
+
+  // Font size toggle — cycle through reader text sizes
+  const fontSizeSteps = [
+    { label: "Aa", value: "1.22rem" },
+    { label: "Aa+", value: "1.35rem" },
+    { label: "Aa++", value: "1.5rem" },
+    { label: "Aa\u2013", value: "1.08rem" },
+  ];
+  els.fontSizeToggle.addEventListener("click", () => {
+    const root = document.documentElement;
+    const current = getComputedStyle(root).getPropertyValue("--reader-font-size").trim();
+    const currentIdx = fontSizeSteps.findIndex((s) => s.value === current);
+    const nextIdx = (currentIdx + 1) % fontSizeSteps.length;
+    const step = fontSizeSteps[nextIdx];
+    root.style.setProperty("--reader-font-size", step.value);
+    els.fontSizeToggle.textContent = step.label;
   });
 
   if (els.importToggle) {

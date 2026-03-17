@@ -69,6 +69,8 @@
   /* ── Type ── */
   --font-display: "Cormorant Garamond", "Iowan Old Style", "Baskerville", "Palatino Linotype", serif;
   --font-body:    "Inter", "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
+  --font-reader:  "Georgia", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  --reader-font-size: 1.22rem;
 
   /* ── Transitions ── */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -2811,9 +2813,10 @@ h3 {
 }
 
 .reader-article {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  line-height: 1.9;
+  font-family: var(--font-reader);
+  font-size: var(--reader-font-size);
+  line-height: 1.85;
+  letter-spacing: 0.005em;
   color: var(--noir);
 }
 
