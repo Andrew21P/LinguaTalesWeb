@@ -170,6 +170,31 @@ async function bootstrap() {
   await initializeAuthenticatedApp(session.profile || null);
 }
 
+// --- Font-size persistence helpers ---
+const fontSizeSteps = [
+  { label: "Aa", value: "1.22rem" },
+  { label: "Aa+", value: "1.35rem" },
+  { label: "Aa++", value: "1.5rem" },
+  { label: "Aa\u2013", value: "1.08rem" },
+];
+function restoreReaderFontSize() {
+  const saved = state.preferences?.readerFontSize;
+  if (saved) {
+    document.documentElement.style.setProperty("--reader-font-size", saved);
+    const match = fontSizeSteps.find((s) => s.value === saved);
+    if (match && els.fontSizeToggle) els.fontSizeToggle.textContent = match.label;
+  }
+}
+async function saveReaderFontSize(value) {
+  try {
+    await fetch("/api/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ readerFontSize: value }),
+    });
+  } catch { /* silent */ }
+}
+
 function attachEvents() {
   els.authSubmit.addEventListener("click", () => void handleLogin());
   els.authPassword.addEventListener("keydown", (event) => {
@@ -218,12 +243,6 @@ function attachEvents() {
   });
 
   // Font size toggle — cycle through reader text sizes
-  const fontSizeSteps = [
-    { label: "Aa", value: "1.22rem" },
-    { label: "Aa+", value: "1.35rem" },
-    { label: "Aa++", value: "1.5rem" },
-    { label: "Aa\u2013", value: "1.08rem" },
-  ];
   els.fontSizeToggle.addEventListener("click", () => {
     const root = document.documentElement;
     const current = getComputedStyle(root).getPropertyValue("--reader-font-size").trim();
@@ -232,6 +251,7 @@ function attachEvents() {
     const step = fontSizeSteps[nextIdx];
     root.style.setProperty("--reader-font-size", step.value);
     els.fontSizeToggle.textContent = step.label;
+    void saveReaderFontSize(step.value);
   });
 
   if (els.importToggle) {
@@ -322,6 +342,9 @@ async function initializeAuthenticatedApp(profileOverride = null, { isNewSignup 
   state.piperVoices = [];
   state.savedWords = meta.savedWords || [];
   state.plan = meta.plan || { current: "free", freeBookLimit: 1 };
+
+  // Restore saved font size
+  restoreReaderFontSize();
 
   renderLanguageOptions(meta);
   renderSupportedLanguages(meta.fullySupportedLanguages || []);

@@ -437,6 +437,7 @@ app.get("/api/meta", requireSession, (req, res) => {
     listenerLanguage: normalizeLanguageCode(dbPrefs?.listener_language || "en"),
     audiobookLanguage: normalizeLanguageCode(dbPrefs?.audiobook_language || "pt-pt"),
     selectedVoiceId: dbPrefs?.selected_voice_id || "storybook",
+    readerFontSize: dbPrefs?.reader_font_size || "1.22rem",
   };
   // Keep global userPreferences in sync for backward compat helpers.
   userPreferences = { ...userPreferences, ...prefs };
@@ -568,6 +569,9 @@ app.post("/api/preferences", requireSession, async (req, res) => {
       audiobook_language: normalizeLanguageCode(req.body?.audiobookLanguage || "pt-pt"),
       selected_voice_id: String(req.body?.selectedVoiceId || "storybook"),
     };
+    if (typeof req.body?.readerFontSize === "string" && /^\d+(\.\d+)?rem$/.test(req.body.readerFontSize)) {
+      dbUpdates.reader_font_size = req.body.readerFontSize;
+    }
     setUserPreferences(req.user.id, dbUpdates);
 
     // Keep global userPreferences in sync for backward-compat helpers.

@@ -2602,15 +2602,15 @@ h3 {
   font-family: var(--font-body);
   font-size: 0.8rem;
   font-weight: 600;
-  min-width: 2.5rem;
-  height: 1.75rem;
+  min-width: 3rem;
+  height: 2.1rem;
   border: 1px solid var(--line);
   border-radius: 0.75rem;
   background: rgba(254, 249, 238, 0.8);
   color: var(--ink);
   cursor: pointer;
   transition: background 120ms, box-shadow 120ms;
-  padding: 0 0.5rem;
+  padding: 0 0.75rem;
 }
 
 .transport-speed-btn:hover {

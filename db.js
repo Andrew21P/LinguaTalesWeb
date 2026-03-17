@@ -48,6 +48,7 @@ db.exec(`
     listener_language  TEXT NOT NULL DEFAULT 'en',
     audiobook_language TEXT NOT NULL DEFAULT 'pt-pt',
     selected_voice_id  TEXT NOT NULL DEFAULT 'storybook',
+    reader_font_size   TEXT NOT NULL DEFAULT '1.22rem',
     updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -67,6 +68,11 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_saved_words_user ON saved_words(user_id);
 `);
+
+// ── Lightweight migrations ──────────────────────────────────
+try {
+  db.exec("ALTER TABLE user_preferences ADD COLUMN reader_font_size TEXT NOT NULL DEFAULT '1.22rem'");
+} catch { /* column already exists */ }
 
 // ── Session management (30 days) ────────────────────────────
 
@@ -147,7 +153,7 @@ export function getUserPreferences(userId) {
 }
 
 export function setUserPreferences(userId, prefs) {
-  const allowed = ["source_language", "listener_language", "audiobook_language", "selected_voice_id"];
+  const allowed = ["source_language", "listener_language", "audiobook_language", "selected_voice_id", "reader_font_size"];
   const sets = [];
   const values = [];
   for (const key of allowed) {
