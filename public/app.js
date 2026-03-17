@@ -300,6 +300,7 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   renderLookupPanel();
   renderReaderShell();
   switchView("library");
+  history.replaceState({ view: "library" }, "");
 }
 
 function showAuthShell(visible) {
@@ -359,11 +360,14 @@ function attachLandingEvents() {
   });
 }
 
-function switchView(view) {
+function switchView(view, { pushState = true } = {}) {
   const readerVisible = view === "reader";
   els.libraryView.classList.toggle("hidden", readerVisible);
   els.readerView.classList.toggle("hidden", !readerVisible);
   els.homeButton.classList.toggle("hidden", !readerVisible);
+  if (pushState && history.state?.view !== view) {
+    history.pushState({ view }, "");
+  }
 }
 
 async function handleLogin() {
@@ -457,6 +461,16 @@ function handleOpenLibraryView() {
   els.bookAudio.pause();
   switchView("library");
 }
+
+window.addEventListener("popstate", (event) => {
+  const view = event.state?.view || "library";
+  if (view === "library") {
+    els.bookAudio.pause();
+    switchView("library", { pushState: false });
+  } else if (view === "reader" && state.currentBook) {
+    switchView("reader", { pushState: false });
+  }
+});
 
 function renderLanguageOptions(meta) {
   const sourceLanguages = meta.sourceLanguages || [];
