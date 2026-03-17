@@ -152,6 +152,18 @@ const els = {
 
 const languageLabels = new Map();
 
+function initCookieBanner() {
+  if (localStorage.getItem("cookie_consent")) return;
+  const banner = document.getElementById("cookie-banner");
+  const btn = document.getElementById("cookie-accept");
+  if (!banner || !btn) return;
+  banner.classList.remove("hidden");
+  btn.addEventListener("click", () => {
+    localStorage.setItem("cookie_consent", "1");
+    banner.classList.add("hidden");
+  });
+}
+
 bootstrap().catch((error) => {
   console.error(error);
   setLookupError(`Setup error: ${error.message}`);
@@ -160,6 +172,7 @@ bootstrap().catch((error) => {
 async function bootstrap() {
   attachEvents();
   attachLandingEvents();
+  initCookieBanner();
   const session = await fetchJson("/api/session").catch(() => ({ authenticated: false }));
   if (!session.authenticated) {
     showLandingPage(true);
