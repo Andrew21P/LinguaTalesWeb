@@ -581,7 +581,10 @@ function renderProfile(profile, localAccessUrls) {
   const planLabel = (profile.plan === "premium") ? "Premium" : "Free";
   const planBadge = `<span class="plan-badge plan-badge-${profile.plan || 'free'}">${planLabel}</span>`;
   els.profileName.innerHTML = `${escapeHtml(displayName)} ${planBadge}`;
-  if (els.topbarUserName) els.topbarUserName.textContent = displayName;
+  if (els.topbarUserName) {
+    const label = els.topbarUserName.querySelector(".topbar-profile-label");
+    if (label) label.textContent = displayName;
+  }
 
   const billingHtml = (profile.plan === "premium")
     ? `<button class="link-button" onclick="handleManageBillingClick()">Manage subscription</button>`
@@ -2759,7 +2762,10 @@ async function saveProfileInfo() {
     els.profileSaveStatus.className = "profile-save-status is-ok";
     els.profileModalEmail.textContent = payload.profile.email;
     els.profileAvatar.textContent = (payload.profile.name || payload.profile.email || "?").charAt(0).toUpperCase();
-    if (els.topbarUserName) els.topbarUserName.textContent = payload.profile.name || payload.profile.email;
+    if (els.topbarUserName) {
+      const label = els.topbarUserName.querySelector(".topbar-profile-label");
+      if (label) label.textContent = payload.profile.name || payload.profile.email;
+    }
     renderProfile(payload.profile, state.localAccessUrls);
   } catch (error) {
     els.profileSaveStatus.textContent = error.message;
@@ -2905,7 +2911,10 @@ async function handleWelcomeSubmit() {
       body: JSON.stringify({ name }),
     });
     state.profile = payload.profile;
-    if (els.topbarUserName) els.topbarUserName.textContent = payload.profile.name || payload.profile.email;
+    if (els.topbarUserName) {
+      const label = els.topbarUserName.querySelector(".topbar-profile-label");
+      if (label) label.textContent = payload.profile.name || payload.profile.email;
+    }
     renderProfile(payload.profile, state.localAccessUrls);
   } catch { /* proceed anyway */ }
 
