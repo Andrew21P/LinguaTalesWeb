@@ -131,6 +131,25 @@ const els = {
   importPanel: document.querySelector("#import-panel"),
   importClose: document.querySelector("#import-close"),
   topbarUserName: document.querySelector("#topbar-user-name"),
+  profileModal: document.querySelector("#profile-modal"),
+  profileModalClose: document.querySelector("#profile-modal-close"),
+  profileAvatar: document.querySelector("#profile-avatar"),
+  profileModalEmail: document.querySelector("#profile-modal-email"),
+  profileNameInput: document.querySelector("#profile-name-input"),
+  profileEmailInput: document.querySelector("#profile-email-input"),
+  profileSaveBtn: document.querySelector("#profile-save-btn"),
+  profileSaveStatus: document.querySelector("#profile-save-status"),
+  profileListenerLang: document.querySelector("#profile-listener-lang"),
+  profileAudiobookLang: document.querySelector("#profile-audiobook-lang"),
+  profileSourceLang: document.querySelector("#profile-source-lang"),
+  profileLangStatus: document.querySelector("#profile-lang-status"),
+  planCards: document.querySelector("#plan-cards"),
+  welcomeModal: document.querySelector("#welcome-modal"),
+  welcomeName: document.querySelector("#welcome-name"),
+  welcomeListenerLang: document.querySelector("#welcome-listener-lang"),
+  welcomeAudiobookLang: document.querySelector("#welcome-audiobook-lang"),
+  welcomeSourceLang: document.querySelector("#welcome-source-lang"),
+  welcomeSubmit: document.querySelector("#welcome-submit"),
 };
 
 const languageLabels = new Map();
@@ -231,6 +250,28 @@ function attachEvents() {
     });
   }
 
+  // Profile modal
+  if (els.topbarUserName) {
+    els.topbarUserName.addEventListener("click", () => openProfileModal());
+  }
+  if (els.profileModalClose) {
+    els.profileModalClose.addEventListener("click", () => closeProfileModal());
+  }
+  if (els.profileModal) {
+    els.profileModal.querySelector(".profile-modal-backdrop")?.addEventListener("click", () => closeProfileModal());
+  }
+  if (els.profileSaveBtn) {
+    els.profileSaveBtn.addEventListener("click", () => void saveProfileInfo());
+  }
+  // Language preference auto-save from profile modal
+  [els.profileListenerLang, els.profileAudiobookLang, els.profileSourceLang].forEach((sel) => {
+    if (sel) sel.addEventListener("change", () => void saveProfileLanguages());
+  });
+  // Welcome modal
+  if (els.welcomeSubmit) {
+    els.welcomeSubmit.addEventListener("click", () => void handleWelcomeSubmit());
+  }
+
   els.bookAudio.addEventListener("play", startPlaybackTracking);
   els.bookAudio.addEventListener("play", () => {
     state.autoplayPending = false;
@@ -255,9 +296,16 @@ function attachEvents() {
   document.addEventListener("selectionchange", scheduleSelectionTranslate);
   document.addEventListener("mouseup", scheduleSelectionTranslate);
   document.addEventListener("keyup", scheduleSelectionTranslate);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (!els.profileModal.classList.contains("hidden")) closeProfileModal();
+      if (!els.welcomeModal.classList.contains("hidden")) closeWelcomeModal();
+    }
+  });
 }
 
-async function initializeAuthenticatedApp(profileOverride = null) {
+async function initializeAuthenticatedApp(profileOverride = null, { isNewSignup = false } = {}) {
   state.authenticated = true;
   showAuthShell(false);
   showLandingPage(false);
@@ -301,6 +349,10 @@ async function initializeAuthenticatedApp(profileOverride = null) {
   renderReaderShell();
   switchView("library");
   history.replaceState({ view: "library" }, "");
+
+  if (isNewSignup) {
+    maybeShowWelcome();
+  }
 }
 
 function showAuthShell(visible) {
@@ -422,7 +474,7 @@ async function handleSignup() {
     });
     if (els.signupPassword) els.signupPassword.value = "";
     if (els.signupConfirm) els.signupConfirm.value = "";
-    await initializeAuthenticatedApp(payload.profile || null);
+    await initializeAuthenticatedApp(payload.profile || null, { isNewSignup: true });
   } catch (error) {
     els.authStatus.textContent = error.message;
   }
@@ -2641,6 +2693,247 @@ async function handleManageBillingClick() {
   } catch (error) {
     alert(error.message || "Could not open billing portal.");
   }
+}
+
+// ── Profile Modal ───────────────────────────────────────────
+
+function openProfileModal() {
+  if (!state.profile) return;
+  const p = state.profile;
+
+  // Avatar initial
+  const initial = (p.name || p.email || "?").charAt(0).toUpperCase();
+  els.profileAvatar.textContent = initial;
+  els.profileModalEmail.textContent = p.email;
+
+  // Fill form fields
+  els.profileNameInput.value = p.name || "";
+  els.profileEmailInput.value = p.email || "";
+  els.profileSaveStatus.textContent = "";
+  els.profileSaveStatus.className = "profile-save-status";
+
+  // Language selects
+  populateProfileLangSelects();
+
+  // Plan cards
+  renderPlanCards();
+
+  els.profileModal.classList.remove("hidden");
+  els.profileModal.setAttribute("aria-hidden", "false");
+}
+
+function closeProfileModal() {
+  els.profileModal.classList.add("hidden");
+  els.profileModal.setAttribute("aria-hidden", "true");
+}
+
+function populateProfileLangSelects() {
+  const prefs = state.preferences || {};
+  // Use the same language data already loaded in the main dropdowns
+  const copyOptions = (sourceSelect, targetSelect, selectedValue) => {
+    targetSelect.innerHTML = "";
+    for (const opt of sourceSelect.options) {
+      const o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.textContent;
+      targetSelect.append(o);
+    }
+    targetSelect.value = selectedValue || "";
+  };
+  copyOptions(els.listenerLanguage, els.profileListenerLang, prefs.listenerLanguage);
+  copyOptions(els.audiobookLanguage, els.profileAudiobookLang, prefs.audiobookLanguage);
+  copyOptions(els.bookLanguage, els.profileSourceLang, prefs.sourceLanguage);
+}
+
+async function saveProfileInfo() {
+  const name = els.profileNameInput.value.trim();
+  const email = els.profileEmailInput.value.trim();
+  els.profileSaveStatus.textContent = "Saving...";
+  els.profileSaveStatus.className = "profile-save-status";
+
+  try {
+    const payload = await fetchJson("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email }),
+    });
+    state.profile = payload.profile;
+    els.profileSaveStatus.textContent = "Saved!";
+    els.profileSaveStatus.className = "profile-save-status is-ok";
+    els.profileModalEmail.textContent = payload.profile.email;
+    els.profileAvatar.textContent = (payload.profile.name || payload.profile.email || "?").charAt(0).toUpperCase();
+    if (els.topbarUserName) els.topbarUserName.textContent = payload.profile.name || payload.profile.email;
+    renderProfile(payload.profile, state.localAccessUrls);
+  } catch (error) {
+    els.profileSaveStatus.textContent = error.message;
+    els.profileSaveStatus.className = "profile-save-status is-error";
+  }
+}
+
+async function saveProfileLanguages() {
+  const prefs = {
+    listenerLanguage: els.profileListenerLang.value,
+    audiobookLanguage: els.profileAudiobookLang.value,
+    sourceLanguage: els.profileSourceLang.value,
+    selectedVoiceId: state.preferences?.selectedVoiceId || "storybook",
+  };
+  els.profileLangStatus.textContent = "Saving...";
+  els.profileLangStatus.className = "profile-save-status";
+
+  try {
+    const payload = await fetchJson("/api/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(prefs),
+    });
+    state.preferences = payload.preferences;
+    // Sync main dropdowns
+    els.listenerLanguage.value = prefs.listenerLanguage;
+    els.audiobookLanguage.value = prefs.audiobookLanguage;
+    els.bookLanguage.value = prefs.sourceLanguage;
+    els.profileLangStatus.textContent = "Saved!";
+    els.profileLangStatus.className = "profile-save-status is-ok";
+  } catch (error) {
+    els.profileLangStatus.textContent = error.message;
+    els.profileLangStatus.className = "profile-save-status is-error";
+  }
+}
+
+function renderPlanCards() {
+  const plan = state.plan || {};
+  const profile = state.profile || {};
+  const isPremium = profile.plan === "premium";
+  const stripeConfigured = plan.stripeConfigured;
+  const freeLimit = plan.freeBookLimit || 1;
+  const booksUsed = profile.booksUsed || 0;
+
+  let html = "";
+
+  // Free card
+  html += `
+    <div class="plan-card ${!isPremium ? "plan-card-active" : ""}">
+      ${!isPremium ? '<span class="plan-card-badge plan-card-badge-current">Current</span>' : ""}
+      <div class="plan-card-name">Free</div>
+      <div class="plan-card-price">€0</div>
+      <div class="plan-card-desc">${freeLimit} book from the free library.<br/>Read and listen with full features.</div>
+      ${!isPremium ? `<div class="plan-card-desc" style="font-weight:500; color: var(--ink)">${booksUsed}/${freeLimit} books used</div>` : ""}
+    </div>`;
+
+  // Monthly card
+  html += `
+    <div class="plan-card ${isPremium ? "plan-card-active" : ""}">
+      ${isPremium ? '<span class="plan-card-badge plan-card-badge-current">Current</span>' : ""}
+      <div class="plan-card-name">Premium</div>
+      <div class="plan-card-price">€19.99<small>/month</small></div>
+      <div class="plan-card-desc">Upload unlimited books.<br/>All languages &amp; voices.</div>
+      <div class="plan-card-action">
+        ${isPremium
+          ? `<button class="btn btn-outline btn-sm" onclick="handleManageBillingClick()">Manage billing</button>`
+          : stripeConfigured
+            ? `<button class="btn btn-primary btn-sm" onclick="handleUpgradeClick()">Upgrade</button>`
+            : `<button class="btn btn-outline btn-sm" disabled>Coming soon</button>`
+        }
+      </div>
+    </div>`;
+
+  // Yearly card
+  html += `
+    <div class="plan-card plan-card-recommended">
+      <span class="plan-card-badge plan-card-badge-best">Best value</span>
+      <div class="plan-card-name">Premium</div>
+      <div class="plan-card-price">€149.99<small>/year</small></div>
+      <div class="plan-card-desc">Save 37% — everything in monthly,<br/>billed annually.</div>
+      <div class="plan-card-action">
+        ${isPremium
+          ? `<button class="btn btn-outline btn-sm" onclick="handleManageBillingClick()">Manage billing</button>`
+          : `<button class="btn btn-outline btn-sm" disabled>Coming soon</button>`
+        }
+      </div>
+    </div>`;
+
+  els.planCards.innerHTML = html;
+}
+
+// ── Welcome (First Login) ───────────────────────────────────
+
+function maybeShowWelcome() {
+  if (!state.profile) return;
+  const name = state.profile.name || "";
+  const email = state.profile.email || "";
+  // Show welcome if name looks like the auto-generated default (email prefix)
+  const emailPrefix = email.split("@")[0];
+  if (name === emailPrefix || !name) {
+    showWelcomeModal();
+  }
+}
+
+function showWelcomeModal() {
+  // Populate language dropdowns
+  const prefs = state.preferences || {};
+  const copyOptions = (sourceSelect, targetSelect, selectedValue) => {
+    targetSelect.innerHTML = "";
+    for (const opt of sourceSelect.options) {
+      const o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.textContent;
+      targetSelect.append(o);
+    }
+    targetSelect.value = selectedValue || "";
+  };
+  copyOptions(els.listenerLanguage, els.welcomeListenerLang, prefs.listenerLanguage);
+  copyOptions(els.audiobookLanguage, els.welcomeAudiobookLang, prefs.audiobookLanguage);
+  copyOptions(els.bookLanguage, els.welcomeSourceLang, prefs.sourceLanguage);
+
+  els.welcomeName.value = "";
+  els.welcomeModal.classList.remove("hidden");
+  els.welcomeModal.setAttribute("aria-hidden", "false");
+  els.welcomeName.focus();
+}
+
+function closeWelcomeModal() {
+  els.welcomeModal.classList.add("hidden");
+  els.welcomeModal.setAttribute("aria-hidden", "true");
+}
+
+async function handleWelcomeSubmit() {
+  const name = els.welcomeName.value.trim();
+  if (!name) {
+    els.welcomeName.focus();
+    return;
+  }
+
+  // Save name
+  try {
+    const payload = await fetchJson("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    state.profile = payload.profile;
+    if (els.topbarUserName) els.topbarUserName.textContent = payload.profile.name || payload.profile.email;
+    renderProfile(payload.profile, state.localAccessUrls);
+  } catch { /* proceed anyway */ }
+
+  // Save language preferences
+  const prefs = {
+    listenerLanguage: els.welcomeListenerLang.value,
+    audiobookLanguage: els.welcomeAudiobookLang.value,
+    sourceLanguage: els.welcomeSourceLang.value,
+    selectedVoiceId: state.preferences?.selectedVoiceId || "storybook",
+  };
+  try {
+    const payload = await fetchJson("/api/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(prefs),
+    });
+    state.preferences = payload.preferences;
+    els.listenerLanguage.value = prefs.listenerLanguage;
+    els.audiobookLanguage.value = prefs.audiobookLanguage;
+    els.bookLanguage.value = prefs.sourceLanguage;
+  } catch { /* proceed anyway */ }
+
+  closeWelcomeModal();
 }
 
 // ── Legal pages (inline overlay) ──────────────────────────

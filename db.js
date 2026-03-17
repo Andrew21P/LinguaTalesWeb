@@ -121,7 +121,7 @@ export function getUserById(id) {
 }
 
 export function updateUser(id, fields) {
-  const allowed = ["name", "plan", "stripe_customer_id", "stripe_subscription_id", "subscription_status", "subscription_current_period_end"];
+  const allowed = ["name", "email", "plan", "stripe_customer_id", "stripe_subscription_id", "subscription_status", "subscription_current_period_end"];
   const sets = [];
   const values = [];
   for (const key of allowed) {

@@ -1289,6 +1289,36 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
   }
 });
 
+// ── Profile Update ──────────────────────────────────────────
+
+app.patch("/api/profile", requireSession, (req, res) => {
+  const updates = {};
+  if (typeof req.body?.name === "string") {
+    const name = req.body.name.trim();
+    if (!name || name.length > 100) {
+      return res.status(400).json({ ok: false, error: "Name must be 1–100 characters." });
+    }
+    updates.name = name;
+  }
+  if (typeof req.body?.email === "string") {
+    const email = req.body.email.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ ok: false, error: "Please provide a valid email." });
+    }
+    const existing = getUserByEmail(email);
+    if (existing && existing.id !== req.user.id) {
+      return res.status(409).json({ ok: false, error: "That email is already in use." });
+    }
+    updates.email = email;
+  }
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ ok: false, error: "Nothing to update." });
+  }
+  updateUser(req.user.id, updates);
+  const user = getUserById(req.user.id);
+  return res.json({ ok: true, profile: getPublicProfile(user) });
+});
+
 // ── Stripe Billing Routes ───────────────────────────────────
 
 app.post("/api/billing/checkout", requireSession, async (req, res) => {
@@ -2936,6 +2966,8 @@ function getPublicProfile(user) {
     email: user.email,
     name: user.name,
     plan: userHasPremium(user) ? "premium" : "free",
+    subscriptionStatus: user.subscription_status || "none",
+    booksUsed: getUserBookCount(user.id),
   };
 }
 
