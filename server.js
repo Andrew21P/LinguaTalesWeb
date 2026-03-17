@@ -1291,7 +1291,7 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
 
 // ── Profile Update ──────────────────────────────────────────
 
-app.patch("/api/profile", requireSession, (req, res) => {
+app.post("/api/profile", requireSession, (req, res) => {
   const updates = {};
   if (typeof req.body?.name === "string") {
     const name = req.body.name.trim();

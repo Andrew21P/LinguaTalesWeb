@@ -141,14 +141,12 @@ const els = {
   profileSaveStatus: document.querySelector("#profile-save-status"),
   profileListenerLang: document.querySelector("#profile-listener-lang"),
   profileAudiobookLang: document.querySelector("#profile-audiobook-lang"),
-  profileSourceLang: document.querySelector("#profile-source-lang"),
   profileLangStatus: document.querySelector("#profile-lang-status"),
   planCards: document.querySelector("#plan-cards"),
   welcomeModal: document.querySelector("#welcome-modal"),
   welcomeName: document.querySelector("#welcome-name"),
   welcomeListenerLang: document.querySelector("#welcome-listener-lang"),
   welcomeAudiobookLang: document.querySelector("#welcome-audiobook-lang"),
-  welcomeSourceLang: document.querySelector("#welcome-source-lang"),
   welcomeSubmit: document.querySelector("#welcome-submit"),
 };
 
@@ -264,7 +262,7 @@ function attachEvents() {
     els.profileSaveBtn.addEventListener("click", () => void saveProfileInfo());
   }
   // Language preference auto-save from profile modal
-  [els.profileListenerLang, els.profileAudiobookLang, els.profileSourceLang].forEach((sel) => {
+  [els.profileListenerLang, els.profileAudiobookLang].forEach((sel) => {
     if (sel) sel.addEventListener("change", () => void saveProfileLanguages());
   });
   // Welcome modal
@@ -2742,7 +2740,6 @@ function populateProfileLangSelects() {
   };
   copyOptions(els.listenerLanguage, els.profileListenerLang, prefs.listenerLanguage);
   copyOptions(els.audiobookLanguage, els.profileAudiobookLang, prefs.audiobookLanguage);
-  copyOptions(els.bookLanguage, els.profileSourceLang, prefs.sourceLanguage);
 }
 
 async function saveProfileInfo() {
@@ -2753,7 +2750,7 @@ async function saveProfileInfo() {
 
   try {
     const payload = await fetchJson("/api/profile", {
-      method: "PATCH",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, email }),
     });
@@ -2774,7 +2771,7 @@ async function saveProfileLanguages() {
   const prefs = {
     listenerLanguage: els.profileListenerLang.value,
     audiobookLanguage: els.profileAudiobookLang.value,
-    sourceLanguage: els.profileSourceLang.value,
+    sourceLanguage: state.preferences?.sourceLanguage || "auto",
     selectedVoiceId: state.preferences?.selectedVoiceId || "storybook",
   };
   els.profileLangStatus.textContent = "Saving...";
@@ -2790,7 +2787,6 @@ async function saveProfileLanguages() {
     // Sync main dropdowns
     els.listenerLanguage.value = prefs.listenerLanguage;
     els.audiobookLanguage.value = prefs.audiobookLanguage;
-    els.bookLanguage.value = prefs.sourceLanguage;
     els.profileLangStatus.textContent = "Saved!";
     els.profileLangStatus.className = "profile-save-status is-ok";
   } catch (error) {
@@ -2882,7 +2878,6 @@ function showWelcomeModal() {
   };
   copyOptions(els.listenerLanguage, els.welcomeListenerLang, prefs.listenerLanguage);
   copyOptions(els.audiobookLanguage, els.welcomeAudiobookLang, prefs.audiobookLanguage);
-  copyOptions(els.bookLanguage, els.welcomeSourceLang, prefs.sourceLanguage);
 
   els.welcomeName.value = "";
   els.welcomeModal.classList.remove("hidden");
@@ -2905,7 +2900,7 @@ async function handleWelcomeSubmit() {
   // Save name
   try {
     const payload = await fetchJson("/api/profile", {
-      method: "PATCH",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
@@ -2918,7 +2913,7 @@ async function handleWelcomeSubmit() {
   const prefs = {
     listenerLanguage: els.welcomeListenerLang.value,
     audiobookLanguage: els.welcomeAudiobookLang.value,
-    sourceLanguage: els.welcomeSourceLang.value,
+    sourceLanguage: state.preferences?.sourceLanguage || "auto",
     selectedVoiceId: state.preferences?.selectedVoiceId || "storybook",
   };
   try {
@@ -2930,7 +2925,6 @@ async function handleWelcomeSubmit() {
     state.preferences = payload.preferences;
     els.listenerLanguage.value = prefs.listenerLanguage;
     els.audiobookLanguage.value = prefs.audiobookLanguage;
-    els.bookLanguage.value = prefs.sourceLanguage;
   } catch { /* proceed anyway */ }
 
   closeWelcomeModal();
