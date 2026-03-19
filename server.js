@@ -1447,6 +1447,13 @@ app.post("/api/billing/checkout", requireSession, async (req, res) => {
       const customer = await stripe.customers.create({ email: user.email, metadata: { userId: user.id } });
       customerId = customer.id;
       updateUser(user.id, { stripe_customer_id: customerId });
+    } else {
+      // Verify the stored customer still exists (may be from test mode).
+      try { await stripe.customers.retrieve(customerId); } catch {
+        const customer = await stripe.customers.create({ email: user.email, metadata: { userId: user.id } });
+        customerId = customer.id;
+        updateUser(user.id, { stripe_customer_id: customerId });
+      }
     }
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
