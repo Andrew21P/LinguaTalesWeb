@@ -231,9 +231,104 @@ export function isUserBook(userId, bookId) {
   return !!db.prepare("SELECT 1 FROM user_books WHERE user_id = ? AND book_id = ?").get(userId, bookId);
 }
 
+// ── Analytics Events ─────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS analytics_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    event       TEXT NOT NULL,
+    payload     TEXT DEFAULT '{}',
+    country     TEXT DEFAULT '',
+    os          TEXT DEFAULT '',
+    browser     TEXT DEFAULT '',
+    language    TEXT DEFAULT '',
+    ip          TEXT DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_analytics_event ON analytics_events(event);
+  CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events(created_at);
+  CREATE INDEX IF NOT EXISTS idx_analytics_user ON analytics_events(user_id);
+`);
+
+export function logAnalyticsEvent(userId, event, { payload = {}, country = "", os = "", browser = "", language = "", ip = "" } = {}) {
+  db.prepare(
+    `INSERT INTO analytics_events (user_id, event, payload, country, os, browser, language, ip)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(userId || null, event, JSON.stringify(payload), country, os, browser, language, ip);
+}
+
+export function getAnalyticsSummary() {
+  const totalUsers = db.prepare("SELECT COUNT(*) as count FROM users").get().count;
+  const premiumUsers = db.prepare("SELECT COUNT(*) as count FROM users WHERE plan = 'premium' OR subscription_status IN ('active', 'trialing')").get().count;
+  const totalBooks = db.prepare("SELECT COUNT(*) as count FROM user_books").get().count;
+  const totalEvents = db.prepare("SELECT COUNT(*) as count FROM analytics_events").get().count;
+
+  const eventCounts = db.prepare(
+    "SELECT event, COUNT(*) as count FROM analytics_events GROUP BY event ORDER BY count DESC"
+  ).all();
+
+  const last7days = db.prepare(
+    `SELECT date(created_at) as day, COUNT(*) as count
+     FROM analytics_events
+     WHERE created_at >= datetime('now', '-7 days')
+     GROUP BY day ORDER BY day`
+  ).all();
+
+  const topCountries = db.prepare(
+    `SELECT country, COUNT(DISTINCT COALESCE(user_id, ip)) as users
+     FROM analytics_events WHERE country != ''
+     GROUP BY country ORDER BY users DESC LIMIT 15`
+  ).all();
+
+  const topOS = db.prepare(
+    `SELECT os, COUNT(DISTINCT COALESCE(user_id, ip)) as users
+     FROM analytics_events WHERE os != ''
+     GROUP BY os ORDER BY users DESC LIMIT 10`
+  ).all();
+
+  const topBrowsers = db.prepare(
+    `SELECT browser, COUNT(DISTINCT COALESCE(user_id, ip)) as users
+     FROM analytics_events WHERE browser != ''
+     GROUP BY browser ORDER BY users DESC LIMIT 10`
+  ).all();
+
+  const topLanguages = db.prepare(
+    `SELECT language, COUNT(DISTINCT COALESCE(user_id, ip)) as users
+     FROM analytics_events WHERE language != ''
+     GROUP BY language ORDER BY users DESC LIMIT 10`
+  ).all();
+
+  const recentSignups = db.prepare(
+    `SELECT date(created_at) as day, COUNT(*) as count
+     FROM users
+     WHERE created_at >= datetime('now', '-30 days')
+     GROUP BY day ORDER BY day`
+  ).all();
+
+  const recentEvents = db.prepare(
+    `SELECT e.event, e.payload, e.country, e.os, e.browser, e.language, e.created_at,
+            u.email, u.name
+     FROM analytics_events e LEFT JOIN users u ON u.id = e.user_id
+     ORDER BY e.created_at DESC LIMIT 50`
+  ).all();
+
+  return {
+    totalUsers, premiumUsers, totalBooks, totalEvents,
+    eventCounts, last7days, topCountries, topOS, topBrowsers, topLanguages,
+    recentSignups, recentEvents,
+  };
+}
+
 // ── Cleanup ─────────────────────────────────────────────────
 
 // Periodically clean expired sessions (run every hour or so)
 setInterval(() => cleanExpiredSessions(), 1000 * 60 * 60);
+
+// Prune analytics older than 90 days to keep DB size manageable.
+setInterval(() => {
+  db.prepare("DELETE FROM analytics_events WHERE created_at < datetime('now', '-90 days')").run();
+}, 1000 * 60 * 60 * 24);
 
 export default db;

@@ -47,6 +47,20 @@ const state = {
   plan: { current: "free", freeBookLimit: 1 },
 };
 
+// ── Analytics helpers ────────────────────────────────────────
+
+function trackServerEvent(event, payload = {}) {
+  fetchJson("/api/analytics/event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event, payload }),
+  }).catch(() => {});
+}
+
+function gtagEvent(name, params = {}) {
+  if (typeof gtag === "function") gtag("event", name, params);
+}
+
 const els = {
   authShell: document.querySelector("#auth-shell"),
   authEmail: document.querySelector("#auth-email"),
@@ -329,6 +343,8 @@ function attachEvents() {
   els.bookAudio.addEventListener("play", () => {
     state.autoplayPending = false;
     syncTransportIcons(true);
+    trackServerEvent("audio_play", { bookId: state.currentBook?.id || "", page: state.currentPageIndex });
+    gtagEvent("audio_play", { book_id: state.currentBook?.id || "", page_index: state.currentPageIndex });
     if (state.currentPage) {
       updateGenerationUiFromPage(state.currentPage);
     }
@@ -981,6 +997,8 @@ async function loadLibraryBook(bookId, pageIndex = 0, options = {}) {
     state.currentBook = payload.book;
     upsertLibraryBook(payload.book);
     renderLibraryBooks();
+    trackServerEvent("book_opened", { bookId: bookId, title: payload.book.title });
+    gtagEvent("book_opened", { book_id: bookId, book_title: payload.book.title });
     await openBookPage(pageIndex, options);
   } catch (error) {
     hideReaderPageOverlay();
@@ -999,6 +1017,8 @@ async function openBookPage(pageIndex, options = {}) {
   const safePageIndex = Math.max(0, Math.min((state.currentBook.pages || []).length - 1, pageIndex));
   const pageSummary = state.currentBook.pages?.[safePageIndex];
   const pageAlreadyReady = pageSummary?.ready;
+  trackServerEvent("page_read", { bookId: state.currentBook.id, page: safePageIndex });
+  gtagEvent("page_read", { book_id: state.currentBook.id, page_index: safePageIndex });
 
   const requestToken = state.pageOpenRequestToken + 1;
   state.pageOpenRequestToken = requestToken;
@@ -1868,6 +1888,7 @@ async function handlePlayToggle() {
 }
 
 async function handleRestartCurrentPage() {
+
   if (!els.bookAudio.src) {
     return;
   }
@@ -2301,6 +2322,8 @@ async function saveCurrentLookup() {
     state.savedWords = payload.savedWords || state.savedWords;
     renderSavedWords();
     applyLookupHighlight();
+    trackServerEvent("word_saved", { word: state.lookup.source, bookId: state.currentBook?.id || "" });
+    gtagEvent("word_saved", { word: state.lookup.source });
   } catch (error) {
     setLookupError(error.message, state.lookup.source);
   }
@@ -2853,6 +2876,8 @@ function openUpgradeModal() {
   if (!els.upgradeModal) return;
   els.upgradeModal.classList.remove("hidden");
   els.upgradeModal.setAttribute("aria-hidden", "false");
+  trackServerEvent("upgrade_modal_shown");
+  gtagEvent("upgrade_modal_shown");
 }
 function closeUpgradeModal() {
   if (!els.upgradeModal) return;

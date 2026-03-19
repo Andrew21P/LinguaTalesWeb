@@ -20,6 +20,7 @@ import {
   getSavedWords, addSavedWord, deleteSavedWord,
   linkBookToUser, unlinkBookFromUser, getUserBookIds, isUserBook,
   userHasPremium, getUserBookCount,
+  logAnalyticsEvent, getAnalyticsSummary,
 } from "./db.js";
 import * as s3 from "./storage.js";
 
@@ -93,6 +94,7 @@ const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
 const BCRYPT_ROUNDS = 12;
 const FREE_BOOK_LIMIT = 1;
 const PREMIUM_PRICE_EUR = 19.99;
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
 
 // Stripe — will be null if keys not configured yet.
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
@@ -456,6 +458,7 @@ app.post("/api/session/signup", authLimiter, async (req, res) => {
   const user = createUser({ email, passwordHash, name: name || email.split("@")[0] });
   const session = createSession(user.id);
   setSessionCookie(res, session.id, session.expiresAt);
+  trackEvent(req, "signup", { email });
   return res.json({
     ok: true,
     authenticated: true,
@@ -478,6 +481,7 @@ app.post("/api/session/login", authLimiter, async (req, res) => {
 
   const session = createSession(user.id);
   setSessionCookie(res, session.id, session.expiresAt);
+  trackEvent(req, "login", { email: user.email });
   return res.json({
     ok: true,
     authenticated: true,
@@ -772,6 +776,7 @@ app.post("/api/books/import", requireSession, upload.single("bookFile"), async (
     }
     const imported = await createLibraryBookFromRequest(req);
     linkBookToUser(req.user.id, imported.book.id);
+    trackEvent(req, "book_import", { bookId: imported.book.id, title: imported.book.title, method: req.file ? "upload" : "paste" });
     return res.json({
       ok: true,
       existing: Boolean(imported.existing),
@@ -1391,6 +1396,7 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
     };
     const imported = await createLibraryBookFromRequest(fakeReq);
     linkBookToUser(req.user.id, imported.book.id);
+    trackEvent(req, "book_import", { bookId: imported.book.id, title: imported.book.title, method: "gutenberg" });
     return res.json({
       ok: true,
       existing: Boolean(imported.existing),
@@ -1520,8 +1526,29 @@ app.post("/api/billing/cancel", requireSession, async (req, res) => {
   }
 });
 
+// ── Admin Analytics ─────────────────────────────────────────
+
+app.get("/api/admin/analytics", requireSession, requireAdmin, (_req, res) => {
+  const data = getAnalyticsSummary();
+  return res.json({ ok: true, ...data });
+});
+
+app.post("/api/analytics/event", requireSession, (req, res) => {
+  const { event, payload } = req.body || {};
+  if (!event || typeof event !== "string") {
+    return res.status(400).json({ ok: false, error: "Missing event name." });
+  }
+  const allowed = ["page_read", "audio_play", "word_saved", "book_opened", "upgrade_modal_shown"];
+  if (!allowed.includes(event)) {
+    return res.status(400).json({ ok: false, error: "Unknown event." });
+  }
+  trackEvent(req, event, typeof payload === "object" && payload ? payload : {});
+  return res.json({ ok: true });
+});
+
 // ── Legal pages ─────────────────────────────────────────────
 
+app.get("/admin", requireSession, requireAdmin, (_req, res) => res.sendFile(path.join(publicDir, "admin.html")));
 app.get("/terms", (_req, res) => res.sendFile(path.join(publicDir, "terms.html")));
 app.get("/privacy", (_req, res) => res.sendFile(path.join(publicDir, "privacy.html")));
 
@@ -3330,6 +3357,44 @@ function requireSession(req, res, next) {
   req.session = session;
   req.user = user;
   return next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user || !ADMIN_EMAILS.includes(req.user.email.toLowerCase())) {
+    return res.status(403).json({ ok: false, error: "Forbidden." });
+  }
+  return next();
+}
+
+// ── User-Agent parsing ──────────────────────────────────────
+
+function parseUA(ua) {
+  ua = ua || "";
+  let os = "Unknown";
+  if (/Windows/i.test(ua)) os = "Windows";
+  else if (/Macintosh|Mac OS/i.test(ua)) os = "macOS";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+  else if (/Linux/i.test(ua)) os = "Linux";
+  else if (/CrOS/i.test(ua)) os = "ChromeOS";
+
+  let browser = "Unknown";
+  if (/Edg\//i.test(ua)) browser = "Edge";
+  else if (/OPR|Opera/i.test(ua)) browser = "Opera";
+  else if (/Chrome/i.test(ua)) browser = "Chrome";
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  else if (/Firefox/i.test(ua)) browser = "Firefox";
+
+  return { os, browser };
+}
+
+function trackEvent(req, event, payload = {}) {
+  const ua = parseUA(req.headers["user-agent"]);
+  const lang = (req.headers["accept-language"] || "").split(",")[0].trim() || "";
+  const ip = (req.ip || req.headers["x-forwarded-for"] || "").replace(/^::ffff:/, "");
+  logAnalyticsEvent(req.user?.id || null, event, {
+    payload, os: ua.os, browser: ua.browser, language: lang, ip,
+  });
 }
 
 function getLocalAccessUrls(activePort) {
