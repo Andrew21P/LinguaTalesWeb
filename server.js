@@ -4202,7 +4202,7 @@ async function createLibraryBookFromRequest(req) {
 
   const book = {
     id: bookId,
-    title: extraction.title || requestedTitle || "Untitled Book",
+    title: (requestedTitle && requestedTitle !== "Untitled Book" ? requestedTitle : extraction.title) || requestedTitle || "Untitled Book",
     sourceType,
     originalFileName,
     sourceLanguageHint,

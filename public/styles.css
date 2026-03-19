@@ -2333,6 +2333,14 @@ h3 {
 
 .upload-zone input { display: none; }
 
+.upload-zone.has-file {
+  border-style: solid;
+  border-color: var(--accent);
+  background: rgba(75, 106, 65, 0.08);
+  font-weight: 500;
+  word-break: break-all;
+}
+
 .upload-icon {
   display: grid;
   place-items: center;

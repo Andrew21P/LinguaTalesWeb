@@ -232,6 +232,17 @@ function attachEvents() {
   els.homeButton.addEventListener("click", handleOpenLibraryView);
   els.backToLibrary.addEventListener("click", handleOpenLibraryView);
   els.bookForm.addEventListener("submit", handleBookImport);
+  els.bookFile.addEventListener("change", () => {
+    const uploadZone = document.querySelector(".upload-zone");
+    if (els.bookFile.files?.length) {
+      const name = els.bookFile.files[0].name;
+      uploadZone?.classList.add("has-file");
+      if (uploadZone) uploadZone.textContent = name;
+    } else {
+      uploadZone?.classList.remove("has-file");
+      uploadZone.textContent = "Click or drag a .txt, .epub, or .pdf file";
+    }
+  });
   els.bookLanguage.addEventListener("change", () => void handlePreferenceFieldChange());
   els.listenerLanguage.addEventListener("change", () => void handlePreferenceFieldChange());
   els.audiobookLanguage.addEventListener("change", () => void handlePreferenceFieldChange());
@@ -339,6 +350,22 @@ function attachEvents() {
       if (!els.profileModal.classList.contains("hidden")) closeProfileModal();
       if (!els.welcomeModal.classList.contains("hidden")) closeWelcomeModal();
     }
+  });
+
+  // Refresh current page status when user returns to the tab.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !state.currentBook?.id || !state.currentPage) return;
+    void (async () => {
+      try {
+        const payload = await fetchJson(`/api/books/${state.currentBook.id}/pages/${state.currentPageIndex}`);
+        syncBookSummaryPage(payload.page);
+        applyBookPage(state.currentBook, payload.page, {
+          preserveViewport: true,
+          preservePlaybackState: true,
+          skipAnimate: true,
+        });
+      } catch { /* will naturally retry on next visibility change or poll */ }
+    })();
   });
 }
 
@@ -1410,7 +1437,6 @@ async function handlePrepareCurrentPage(options = {}) {
     if (stillCurrent) {
       applyBookPage(state.currentBook || payload.book, payload.page, {
         autoplay: Boolean(options.autoplay),
-        skipGenerationUiUpdate: generationStillRunning,
         skipAutoPrepare: true,
       });
     }
@@ -1621,6 +1647,12 @@ function visiblePageNeedsPolling(page, { preview = false } = {}) {
     return true;
   }
 
+  // Keep polling while translation is done but audio pipeline hasn't started/finished yet.
+  if (!state.currentBook.skipAudiobook && !page.audioUrl &&
+      (page.translationStatus === "ready" || page.audioStatus === "ready")) {
+    return true;
+  }
+
   const needsTranslation =
     normalizeLanguageCode(state.currentBook.detectedLanguage || "auto") !== "auto" &&
     normalizeLanguageCode(state.currentBook.detectedLanguage || "auto") !==
@@ -1706,8 +1738,8 @@ function startPageStatusPolling(bookId, pageIndex) {
       if (!stillNeedsPolling && !state.activePreparationKey) {
         stopPageStatusPolling();
       }
-    } catch {
-      // Keep polling quietly while background work continues.
+    } catch (pollError) {
+      console.warn("[poll] page status fetch failed:", pollError.message);
     } finally {
       state.pageStatusPollerBusy = false;
     }
