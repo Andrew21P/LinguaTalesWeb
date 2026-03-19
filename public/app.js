@@ -1409,6 +1409,9 @@ async function handleDeleteBook(bookId) {
   try {
     await fetchJson(`/api/books/${encodeURIComponent(bookId)}`, { method: "DELETE" });
     state.libraryBooks = state.libraryBooks.filter((candidate) => candidate.id !== bookId);
+    if (state.profile) {
+      state.profile.booksUsed = Math.max(0, (state.profile.booksUsed || 1) - 1);
+    }
     if (state.currentBook?.id === bookId) {
       state.currentBook = null;
       state.currentPage = null;
