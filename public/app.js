@@ -1652,10 +1652,10 @@ function inferGenerationProgressFromPage(page) {
     page.audioStatus === "running"
       ? [...(page.logs || [])]
           .reverse()
-          .find((entry) => /Generating segment \d+ of \d+(?: with Piper)?\./u.test(entry))
+          .find((entry) => /Narrating section \d+ of \d+\./u.test(entry))
       : "";
   if (segmentLog) {
-    const match = segmentLog.match(/Generating segment (\d+) of (\d+)(?: with Piper)?\./u);
+    const match = segmentLog.match(/Narrating section (\d+) of (\d+)\./u);
     if (match) {
       const currentSegment = Number(match[1]);
       const totalSegments = Number(match[2]);
@@ -2930,7 +2930,7 @@ if (els.upgradeModal) {
 async function handleCancelSubscription() {
   const confirmed = await showConfirmDialog({
     title: "Cancel Premium?",
-    message: "You'll lose access to unlimited books immediately. No refund will be issued. Are you sure?",
+    message: "You'll lose access to unlimited books immediately. Are you sure?",
     okLabel: "Cancel subscription",
   });
   if (!confirmed) return;

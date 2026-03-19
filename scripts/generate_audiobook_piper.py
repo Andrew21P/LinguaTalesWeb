@@ -34,7 +34,7 @@ def emit_progress(percent: int, message: str) -> None:
 
 
 def load_voice(model_path: str, voice_id: str, download_dir: str):
-    emit_progress(10, "Loading Piper voice.")
+    emit_progress(10, "Preparing the narration voice.")
     final_model_path = ensure_voice_downloaded(
         voice_id=voice_id,
         download_dir=download_dir,
@@ -45,7 +45,7 @@ def load_voice(model_path: str, voice_id: str, download_dir: str):
     from piper.voice import PiperVoice
 
     voice = PiperVoice.load(final_model_path)
-    emit_progress(12, f"Using Piper voice {voice_id}.")
+    emit_progress(12, "Voice ready. Starting audio generation.")
     return voice, SynthesisConfig, final_model_path
 
 
@@ -74,7 +74,7 @@ def generate_with_voice(
 
         for index, segment in enumerate(segments):
             progress = 15 + int((index / max(len(segments), 1)) * 75)
-            emit_progress(progress, f"Generating segment {index + 1} of {len(segments)} with Piper.")
+            emit_progress(progress, f"Narrating section {index + 1} of {len(segments)}.")
 
             part_path = temp_dir_path / f"chunk-{index:04d}.wav"
             duration = synthesize_segment_to_wav(voice, synthesis_config, segment.text, part_path)
@@ -98,7 +98,7 @@ def generate_with_voice(
                 part_paths.append(pause_path)
                 current_time += segment.pause_after
 
-        emit_progress(92, "Combining narration chunks.")
+        emit_progress(92, "Finishing up your audiobook page.")
         ga.combine_wavs(part_paths, output_path, speed)
 
         final_duration = ga.probe_audio_duration(output_path)
@@ -123,7 +123,7 @@ def generate_with_voice(
                 encoding="utf-8",
             )
 
-    emit_progress(100, "Audiobook finished.")
+    emit_progress(100, "Your audiobook page is ready.")
     return {
         "prepared_text": prepared_text,
         "segments": alignment_segments,

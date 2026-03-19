@@ -153,7 +153,7 @@ def main() -> None:
     prepared_text = normalize_narration_text(text, args.language)
     segments = segment_text(prepared_text)
 
-    print("PROGRESS:10|Loading Chatterbox models.", flush=True)
+    print("PROGRESS:10|Preparing the narration voice.", flush=True)
 
     try:
         import torch
@@ -163,7 +163,7 @@ def main() -> None:
     except ImportError:
         if can_use_say_fallback():
             generate_with_say_fallback(args, segments, output_path)
-            print("PROGRESS:100|Audiobook finished with macOS demo voice fallback.", flush=True)
+            print("PROGRESS:100|Your audiobook page is ready.", flush=True)
             return
 
         raise SystemExit(
@@ -171,10 +171,10 @@ def main() -> None:
         )
 
     device = resolve_device(torch)
-    print(f"PROGRESS:12|Using the official Chatterbox multilingual model on {device}.", flush=True)
+    print("PROGRESS:12|Voice ready. Starting audio generation.", flush=True)
     model = load_multilingual_model(cb_mtl, torch, device)
     if args.voice_sample:
-        print("PROGRESS:14|Applying your uploaded voice sample as the prompt voice.", flush=True)
+        print("PROGRESS:14|Applying your custom voice.", flush=True)
         prompt_duration = probe_audio_duration(Path(args.voice_sample))
         if prompt_duration < MIN_VOICE_PROMPT_SECONDS:
             raise SystemExit(
@@ -198,7 +198,7 @@ def main() -> None:
 
         for index, segment in enumerate(segments):
             progress = 15 + int((index / max(len(segments), 1)) * 75)
-            print(f"PROGRESS:{progress}|Generating segment {index + 1} of {len(segments)}.", flush=True)
+            print(f"PROGRESS:{progress}|Narrating section {index + 1} of {len(segments)}.", flush=True)
 
             kwargs = {
                 "language_id": args.language,
@@ -209,7 +209,7 @@ def main() -> None:
                 wav = model.generate(segment.text, **kwargs)
             except IndexError as error:
                 if "Expected reduction dim 1 to have non-zero size" in str(error):
-                    print("PROGRESS:15|Retrying a short segment without alignment integrity checks.", flush=True)
+                    print("PROGRESS:15|Retrying a short section.", flush=True)
                     wav = generate_segment_without_alignment(model, segment.text, kwargs)
                 else:
                     raise
@@ -263,7 +263,7 @@ def main() -> None:
                 encoding="utf-8",
             )
 
-    print("PROGRESS:100|Audiobook finished.", flush=True)
+    print("PROGRESS:100|Your audiobook page is ready.", flush=True)
 
 
 def resolve_device(torch_module) -> str:
@@ -660,11 +660,11 @@ def generate_with_say_fallback(args: argparse.Namespace, chunks: list[NarrationS
 
     if args.voice_sample:
         print(
-            "PROGRESS:12|Custom voice cloning is unavailable in macOS demo fallback mode; using a system narration voice instead.",
+            "PROGRESS:12|Using an alternative narration voice.",
             flush=True,
         )
     else:
-        print("PROGRESS:12|Chatterbox unavailable on this machine; using a macOS demo narration voice.", flush=True)
+        print("PROGRESS:12|Using an alternative narration voice.", flush=True)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir_path = Path(temp_dir)
@@ -672,7 +672,7 @@ def generate_with_say_fallback(args: argparse.Namespace, chunks: list[NarrationS
 
         for index, chunk in enumerate(chunks):
             progress = 18 + int((index / max(len(chunks), 1)) * 70)
-            print(f"PROGRESS:{progress}|Generating fallback segment {index + 1} of {len(chunks)}.", flush=True)
+            print(f"PROGRESS:{progress}|Narrating section {index + 1} of {len(chunks)}.", flush=True)
 
             text_path = temp_dir_path / f"chunk-{index:04d}.txt"
             part_path = temp_dir_path / f"chunk-{index:04d}.wav"
@@ -719,7 +719,7 @@ def generate_with_say_fallback(args: argparse.Namespace, chunks: list[NarrationS
                     raise SystemExit(result.stderr.strip() or "ffmpeg failed while creating fallback pauses.")
                 part_paths.append(pause_path)
 
-        print("PROGRESS:92|Combining narration chunks.", flush=True)
+        print("PROGRESS:92|Finishing up your audiobook page.", flush=True)
         combine_wavs(part_paths, output_path)
 
 

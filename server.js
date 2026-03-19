@@ -2342,6 +2342,15 @@ function narrationBackendSupportsCustomVoiceCloning(engine) {
   return engine === "chatterbox";
 }
 
+const serverLanguageLabels = new Map([
+  ["pt-pt", "Portuguese (Portugal)"], ["pt-br", "Portuguese (Brazil)"], ["pt", "Portuguese"],
+  ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"], ["it", "Italian"],
+  ["nl", "Dutch"], ["ru", "Russian"], ["zh", "Chinese"], ["ja", "Japanese"], ["ko", "Korean"],
+]);
+function getLanguageLabelServer(code) {
+  return serverLanguageLabels.get(normalizeLanguageCode(code)) || String(code || "").toUpperCase();
+}
+
 function getNarrationBackendLabel(engine) {
   if (engine === "piper") {
     return "Piper PT-PT CPU fast path";
@@ -3898,7 +3907,7 @@ async function sanitizeLibraryBookState(book) {
         page.translatedText = page.originalText;
         page.translationStatus = "source";
       }
-      page.logs = [...(page.logs || []).slice(-5), "Recovered a cached audiobook page from disk."];
+      page.logs = [...(page.logs || []).slice(-5), "Your audiobook page is ready."];
       audioPath = resolveLibraryAudioFilePath(book.id, page.audioUrl);
       audioExists = audioPath ? fs.existsSync(audioPath) : false;
       changed = true;
@@ -4433,7 +4442,7 @@ async function markBookPagePreparationStarted(book, pageIndex, voiceKey, engine,
       changed = true;
     }
     if (!prefetch) {
-      appendPageLog(page, `Translating page ${pageIndex + 1} into ${book.audiobookLanguage.toUpperCase()}.`);
+      appendPageLog(page, `Translating page ${pageIndex + 1} into ${getLanguageLabelServer(book.audiobookLanguage)}.`);
       changed = true;
     }
   } else if (!pageHasReadyAudio(page, voiceKey, engine)) {
@@ -4450,7 +4459,7 @@ async function markBookPagePreparationStarted(book, pageIndex, voiceKey, engine,
       changed = true;
     }
     if (!prefetch) {
-      appendPageLog(page, `Generating the audiobook page with ${getNarrationBackendLabel(engine)}.`);
+      appendPageLog(page, `Generating the audiobook for page ${pageIndex + 1}.`);
       changed = true;
     }
   }
@@ -4636,7 +4645,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
             normalizeTranslationProviderLanguage(book.audiobookLanguage)
         ) {
           page.translationStatus = "running";
-          appendPageLog(page, `Translating page ${safePageIndex + 1} into ${book.audiobookLanguage.toUpperCase()}.`);
+          appendPageLog(page, `Translating page ${safePageIndex + 1} into ${getLanguageLabelServer(book.audiobookLanguage)}.`);
           await persistLibraryBook(book);
 
           const translatedText = await translateLongText({
@@ -4652,7 +4661,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
           page.translationStatus = "ready";
           page.translationProvider = getTranslationProvider();
           page.translationProviderTarget = normalizeTranslationProviderLanguage(book.audiobookLanguage);
-          appendPageLog(page, "Translation saved for this page.");
+          appendPageLog(page, "Translation ready.");
           await persistLibraryBook(book);
           await persistLibraryDerivedTexts(book);
         } else {
@@ -4674,7 +4683,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
       if (!pageHasReadyAudio(page, voiceKey, narrationRequest.engine)) {
         page.audioStatus = "running";
         page.audioEngine = narrationRequest.engine;
-        appendPageLog(page, `Generating the audiobook page with ${getNarrationBackendLabel(narrationRequest.engine)}.`);
+        appendPageLog(page, `Generating the audiobook for page ${safePageIndex + 1}.`);
         await persistLibraryBook(book);
 
         const bookDir = getLibraryBookDir(book.id);
@@ -4746,7 +4755,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
           if (fs.existsSync(outputWavPath)) s3.upload(outputWavPath, dataDir).catch(() => {});
           if (fs.existsSync(metadataPath)) s3.upload(metadataPath, dataDir).catch(() => {});
         }
-        appendPageLog(completedPage, "Audiobook page ready.");
+        appendPageLog(completedPage, "Your audiobook page is ready.");
         await persistLibraryBook(book);
       }
 
