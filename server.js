@@ -21,11 +21,13 @@ import {
   linkBookToUser, unlinkBookFromUser, getUserBookIds, isUserBook,
   userHasPremium, getUserBookCount,
 } from "./db.js";
+import * as s3 from "./storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set("trust proxy", 1);
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "0.0.0.0";
 const pythonBin = process.env.PYTHON_BIN || "python3";
@@ -412,9 +414,9 @@ app.use(
     },
   })
 );
-app.use("/audio", requireSession, express.static(audioDir));
-app.use("/voices", requireSession, express.static(voicesDir));
-app.use("/library-assets", requireSession, express.static(libraryDir));
+app.use("/audio", requireSession, s3.cacheFillMiddleware(audioDir, "audio/"), express.static(audioDir));
+app.use("/voices", requireSession, s3.cacheFillMiddleware(voicesDir, "voices/"), express.static(voicesDir));
+app.use("/library-assets", requireSession, s3.cacheFillMiddleware(libraryDir, "library/"), express.static(libraryDir));
 
 // ── Auth Routes ─────────────────────────────────────────────
 
@@ -983,6 +985,11 @@ app.post("/api/voice-sample", requireSession, upload.single("voiceSample"), asyn
 
     registerVoiceSample(voiceSample);
     await fsp.writeFile(metadataPath, JSON.stringify(voiceSample, null, 2), "utf8");
+    if (s3.isConfigured()) {
+      s3.upload(sourcePath, dataDir).catch(() => {});
+      s3.upload(finalPath, dataDir).catch(() => {});
+      s3.upload(metadataPath, dataDir).catch(() => {});
+    }
 
     return res.json({
       ok: true,
@@ -1505,8 +1512,12 @@ app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
-app.listen(port, host, () => {
+app.listen(port, host, async () => {
   console.log(`Voxenor listening on http://${host}:${port}`);
+  if (s3.isConfigured()) {
+    console.log("S3 object storage configured — syncing library index.");
+    await s3.syncLibraryIndex(libraryDir, dataDir).catch((err) => console.error("S3 sync error:", err.message));
+  }
 });
 
 async function runGenerationJob(config) {
@@ -1624,6 +1635,9 @@ async function runGenerationJob(config) {
       job.readerText = job.alignment.preparedText;
       job.readerChapters = splitIntoChapters(job.readerText);
     }
+  }
+  if (s3.isConfigured() && fs.existsSync(config.outputWavPath)) {
+    s3.upload(config.outputWavPath, dataDir).catch((err) => console.error("S3 upload error:", err.message));
   }
   await persistJob(config.jobId, job);
 }
@@ -3116,6 +3130,9 @@ async function atomicWriteTextFile(filePath, contents) {
   );
   await fsp.writeFile(tempPath, contents, "utf8");
   await fsp.rename(tempPath, filePath);
+  if (s3.isConfigured() && s3.isManaged(filePath, dataDir)) {
+    s3.upload(filePath, dataDir).catch((err) => console.error("S3 upload error:", err.message));
+  }
 }
 
 async function readTextFileWithRetries(filePath, attempts = 4) {
@@ -3348,7 +3365,10 @@ async function readLibraryBook(bookId) {
   try {
     const metadataPath = getLibraryBookMetadataPath(bookId);
     if (!fs.existsSync(metadataPath)) {
-      return null;
+      if (s3.isConfigured()) {
+        await s3.ensureLocal(metadataPath, dataDir);
+      }
+      if (!fs.existsSync(metadataPath)) return null;
     }
     const parsedBook = parseJsonWithTrailingTrim(await readTextFileWithRetries(metadataPath));
     const { book: sanitizedBook, changed } = await sanitizeLibraryBookState(parsedBook.value);
@@ -4127,6 +4147,7 @@ async function createLibraryBookFromRequest(req) {
           if (coverRes.ok) {
             const coverBuf = Buffer.from(await coverRes.arrayBuffer());
             await fsp.writeFile(existingCoverPath, coverBuf);
+            if (s3.isConfigured()) s3.upload(existingCoverPath, dataDir).catch(() => {});
             existingBook.coverUrl = `/library-assets/${existingBook.id}/cover.jpg`;
             await persistLibraryBook(existingBook);
           }
@@ -4150,14 +4171,17 @@ async function createLibraryBookFromRequest(req) {
     originalFileName = req.file.originalname;
     const sourcePath = path.join(bookDir, `source${ext}`);
     await fsp.rename(req.file.path, sourcePath);
+    if (s3.isConfigured()) s3.upload(sourcePath, dataDir).catch(() => {});
     const coverPath = path.join(bookDir, "cover.jpg");
     await maybeCreateBookCover(sourcePath, req.file.originalname, coverPath);
+    if (s3.isConfigured() && fs.existsSync(coverPath)) s3.upload(coverPath, dataDir).catch(() => {});
   } else if (req._gutenbergCoverUrl) {
     try {
       const coverRes = await fetch(String(req._gutenbergCoverUrl));
       if (coverRes.ok) {
         const coverBuf = Buffer.from(await coverRes.arrayBuffer());
         await fsp.writeFile(path.join(bookDir, "cover.jpg"), coverBuf);
+        if (s3.isConfigured()) s3.upload(path.join(bookDir, "cover.jpg"), dataDir).catch(() => {});
       }
     } catch { /* cover download failed, continue without */ }
   }
@@ -4366,6 +4390,9 @@ async function markBookPagePreparationStarted(book, pageIndex, voiceKey, engine,
 async function clearBookAudioCache(book) {
   const audioCacheDir = path.join(getLibraryBookDir(book.id), "audio");
   await fsp.rm(audioCacheDir, { recursive: true, force: true });
+  if (s3.isConfigured()) {
+    s3.deletePrefix(`library/${book.id}/audio/`).catch((err) => console.error("S3 delete error:", err.message));
+  }
   for (const page of book.pages) {
     page.audioStatus = "idle";
     page.audioUrl = "";
@@ -4379,6 +4406,9 @@ async function clearBookAudioCache(book) {
 async function deleteLibraryBook(bookId) {
   bookPreparationTargets.delete(bookId);
   await fsp.rm(getLibraryBookDir(bookId), { recursive: true, force: true });
+  if (s3.isConfigured()) {
+    s3.deletePrefix(`library/${bookId}/`).catch((err) => console.error("S3 delete error:", err.message));
+  }
 }
 
 async function deleteLibraryBookPage(bookId, pageIndex) {
@@ -4585,6 +4615,7 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         const outputWavPath = path.join(audioCacheDir, `${pagePrefix}.wav`);
         const metadataPath = path.join(audioCacheDir, `${pagePrefix}.json`);
         await fsp.writeFile(inputTextPath, normalizeText(page.translatedText || page.originalText), "utf8");
+        if (s3.isConfigured()) s3.upload(inputTextPath, dataDir).catch(() => {});
 
         if (voiceKey !== "storybook" && !narrationBackendSupportsCustomVoiceCloning(narrationRequest.engine)) {
           throw new Error(
@@ -4637,6 +4668,10 @@ async function ensureLibraryBookPageReady({ bookId, pageIndex, voiceSampleId, pr
         completedPage.audioUrl = `/library-assets/${book.id}/audio/${path.basename(outputWavPath)}`;
         if (fs.existsSync(metadataPath)) {
           completedPage.alignment = JSON.parse(await fsp.readFile(metadataPath, "utf8"));
+        }
+        if (s3.isConfigured()) {
+          if (fs.existsSync(outputWavPath)) s3.upload(outputWavPath, dataDir).catch(() => {});
+          if (fs.existsSync(metadataPath)) s3.upload(metadataPath, dataDir).catch(() => {});
         }
         appendPageLog(completedPage, "Audiobook page ready.");
         await persistLibraryBook(book);
@@ -4732,5 +4767,8 @@ async function deleteVoiceSampleAssets(voiceSample) {
   const pathsToDelete = [voiceSample.path, voiceSample.originalPath, metadataPath].filter(Boolean);
 
   await Promise.allSettled(pathsToDelete.map((filePath) => fsp.rm(filePath, { force: true })));
+  if (s3.isConfigured()) {
+    s3.deletePrefix(`voices/${voiceSample.id}.`).catch(() => {});
+  }
   voiceRegistry.delete(voiceSample.id);
 }
