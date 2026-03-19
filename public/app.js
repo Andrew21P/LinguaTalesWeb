@@ -233,6 +233,11 @@ function attachEvents() {
   els.backToLibrary.addEventListener("click", handleOpenLibraryView);
   els.bookForm.addEventListener("submit", handleBookImport);
   els.bookFile.addEventListener("change", () => {
+    if (!isPremiumUser() && els.bookFile.files?.length) {
+      els.bookFile.value = "";
+      openUpgradeModal();
+      return;
+    }
     const uploadZone = document.querySelector(".upload-zone");
     if (els.bookFile.files?.length) {
       const name = els.bookFile.files[0].name;
@@ -388,6 +393,7 @@ async function initializeAuthenticatedApp(profileOverride = null, { isNewSignup 
   state.piperVoices = [];
   state.savedWords = meta.savedWords || [];
   state.plan = meta.plan || { current: "free", freeBookLimit: 1 };
+  applyImportPanelGating();
 
   // Restore saved font size
   restoreReaderFontSize();
@@ -2821,6 +2827,26 @@ function canImportBook() {
     return false;
   }
   return true;
+}
+
+function isPremiumUser() {
+  return (state.profile?.plan === "premium") || (state.plan?.current === "premium");
+}
+
+function applyImportPanelGating() {
+  const premium = isPremiumUser();
+  const importPanel = els.importPanel;
+  if (!importPanel) return;
+  importPanel.classList.toggle("free-plan", !premium);
+
+  // Disable file input and paste textarea for free users.
+  els.bookFile.disabled = !premium;
+  els.bookText.disabled = !premium;
+  if (!premium) {
+    els.bookText.placeholder = "Pasting your own text is a Premium feature.";
+  } else {
+    els.bookText.placeholder = "Paste text here if you do not want to upload a file.";
+  }
 }
 
 function openUpgradeModal() {
