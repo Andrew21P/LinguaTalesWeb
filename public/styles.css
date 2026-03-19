@@ -1634,16 +1634,16 @@ h3 {
   padding: 0;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-full);
   flex-shrink: 0;
-  background: var(--sand);
-  border: 1px solid var(--line);
+  background: none;
+  border: none;
   color: var(--ink);
   cursor: pointer;
-  transition: background 0.15s;
+  opacity: 0.5;
+  transition: opacity 0.15s;
 }
 .import-close-btn:hover {
-  background: var(--line);
+  opacity: 1;
 }
 
 .import-form-grid {
