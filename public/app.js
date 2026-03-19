@@ -1033,6 +1033,31 @@ function applyBookPage(book, page, options = {}) {
   const shouldResumePlayback = preservePlaybackState && !els.bookAudio.paused && !els.bookAudio.ended;
   const sameAudioUrl = Boolean(page.audioUrl && state.currentAudioUrl && state.currentAudioUrl === page.audioUrl);
 
+  // When the page content and audio haven't changed, skip the full re-render
+  // so we don't destroy in-flight playback highlights.
+  const samePage = state.currentBook?.id === book.id &&
+    state.currentPageIndex === page.index &&
+    (state.currentPage?.displayText || "") === (page.displayText || "") &&
+    (state.currentPage?.audioUrl || "") === (page.audioUrl || "");
+
+  if (samePage && preservePlaybackState) {
+    // Just update lightweight status fields without re-rendering.
+    state.currentBook = book;
+    state.currentPage = page;
+    syncBookSummaryPage(page);
+    if (!options.skipGenerationUiUpdate) {
+      updateGenerationUiFromPage(page);
+    }
+    updateReaderStatusPill();
+    // Re-check polling needs.
+    if (visiblePageNeedsPolling(page, { preview: false }) || state.activePreparationKey) {
+      startPageStatusPolling(book.id, page.index);
+    } else {
+      stopPageStatusPolling();
+    }
+    return;
+  }
+
   state.currentBook = book;
   state.currentPage = page;
   state.currentPageIndex = page.index;
