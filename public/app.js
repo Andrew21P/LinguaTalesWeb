@@ -61,6 +61,35 @@ function gtagEvent(name, params = {}) {
   if (typeof gtag === "function") gtag("event", name, params);
 }
 
+// ── Currency detection ──────────────────────────────────────
+
+const EURO_ZONES = new Set([
+  "Europe/Amsterdam","Europe/Andorra","Europe/Athens","Europe/Belgrade",
+  "Europe/Berlin","Europe/Bratislava","Europe/Brussels","Europe/Bucharest",
+  "Europe/Budapest","Europe/Busingen","Europe/Chisinau","Europe/Copenhagen",
+  "Europe/Dublin","Europe/Gibraltar","Europe/Helsinki","Europe/Istanbul",
+  "Europe/Kaliningrad","Europe/Kiev","Europe/Kyiv","Europe/Lisbon",
+  "Europe/Ljubljana","Europe/London","Europe/Luxembourg","Europe/Madrid",
+  "Europe/Malta","Europe/Mariehamn","Europe/Minsk","Europe/Monaco",
+  "Europe/Moscow","Europe/Nicosia","Europe/Oslo","Europe/Paris",
+  "Europe/Podgorica","Europe/Prague","Europe/Riga","Europe/Rome",
+  "Europe/Samara","Europe/San_Marino","Europe/Sarajevo","Europe/Simferopol",
+  "Europe/Skopje","Europe/Sofia","Europe/Stockholm","Europe/Tallinn",
+  "Europe/Tirane","Europe/Uzhgorod","Europe/Vaduz","Europe/Vatican",
+  "Europe/Vienna","Europe/Vilnius","Europe/Volgograd","Europe/Warsaw",
+  "Europe/Zagreb","Europe/Zaporozhye","Europe/Zurich",
+  "Atlantic/Azores","Atlantic/Canary","Atlantic/Faroe","Atlantic/Madeira",
+]);
+
+function detectCurrency() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    return EURO_ZONES.has(tz) ? "€" : "$";
+  } catch { return "$"; }
+}
+
+const CUR = detectCurrency();
+
 const els = {
   authShell: document.querySelector("#auth-shell"),
   authEmail: document.querySelector("#auth-email"),
@@ -410,6 +439,12 @@ async function initializeAuthenticatedApp(profileOverride = null, { isNewSignup 
   state.savedWords = meta.savedWords || [];
   state.plan = meta.plan || { current: "free", freeBookLimit: 1 };
   applyImportPanelGating();
+  // Update modal prices with detected currency
+  document.querySelectorAll("[data-price]").forEach(el => {
+    const type = el.dataset.price;
+    if (type === "monthly") el.innerHTML = `${CUR}19.99<small>/mo</small>`;
+    if (type === "yearly") el.innerHTML = `${CUR}149.99<small>/yr</small>`;
+  });
 
   // Restore saved font size
   restoreReaderFontSize();
@@ -680,7 +715,7 @@ function renderProfile(profile, localAccessUrls) {
 
   const billingHtml = (profile.plan === "premium")
     ? `<span style="font-size:0.85rem;color:var(--muted)">Premium subscriber</span>`
-    : `<button class="link-button" data-action="upgrade" data-interval="monthly">Upgrade to Premium — €19.99/month</button>`;
+    : `<button class="link-button" data-action="upgrade" data-interval="monthly">Upgrade to Premium — ${CUR}19.99/month</button>`;
   els.profileDetails.innerHTML = `${escapeHtml(profile.email)}<br/>${billingHtml}`;
 
   els.networkList.innerHTML = (localAccessUrls || [])
@@ -3042,7 +3077,7 @@ function renderPlanCards() {
     <div class="plan-card ${!isPremium ? "plan-card-active" : ""}">
       ${!isPremium ? '<span class="plan-card-badge plan-card-badge-current">Current</span>' : ""}
       <div class="plan-card-name">Free</div>
-      <div class="plan-card-price">€0</div>
+      <div class="plan-card-price">${CUR}0</div>
       <div class="plan-card-desc">${freeLimit} book from the free library.<br/>Read and listen with full features.</div>
       ${!isPremium ? `<div class="plan-card-desc" style="font-weight:500; color: var(--ink)">${booksUsed}/${freeLimit} books used</div>` : ""}
     </div>`;
@@ -3052,7 +3087,7 @@ function renderPlanCards() {
     <div class="plan-card ${isPremium ? "plan-card-active" : ""}">
       ${isPremium ? '<span class="plan-card-badge plan-card-badge-current">Current</span>' : ""}
       <div class="plan-card-name">Premium</div>
-      <div class="plan-card-price">€19.99<small>/month</small></div>
+      <div class="plan-card-price">${CUR}19.99<small>/month</small></div>
       <div class="plan-card-desc">Upload unlimited books.<br/>All languages &amp; voices.</div>
       <div class="plan-card-action">
         ${isPremium
@@ -3070,7 +3105,7 @@ function renderPlanCards() {
     <div class="plan-card plan-card-recommended">
       <span class="plan-card-badge plan-card-badge-best">Best value</span>
       <div class="plan-card-name">Premium</div>
-      <div class="plan-card-price">€149.99<small>/year</small></div>
+      <div class="plan-card-price">${CUR}149.99<small>/year</small></div>
       <div class="plan-card-desc">Save 37% — everything in monthly,<br/>billed annually.</div>
       <div class="plan-card-action">
         ${isPremium
