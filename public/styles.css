@@ -1629,13 +1629,21 @@ h3 {
 }
 
 .import-close-btn {
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 2rem;
+  height: 2rem;
   padding: 0;
   display: grid;
   place-items: center;
   border-radius: var(--radius-full);
   flex-shrink: 0;
+  background: var(--sand);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.import-close-btn:hover {
+  background: var(--line);
 }
 
 .import-form-grid {

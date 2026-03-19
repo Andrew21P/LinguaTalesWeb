@@ -731,9 +731,6 @@ function renderVoiceShelf(voiceSamples = []) {
   }
 
   els.voiceSettingsCard.classList.toggle("hidden", visibleVoiceSamples.length <= 1);
-  els.importVoiceSummary.textContent = state.selectedVoice
-    ? `Voice: ${state.selectedVoice.name}`
-    : "PDF / EPUB / OCR";
 
   els.voiceShelf.innerHTML = "";
   if (!visibleVoiceSamples.length) {
