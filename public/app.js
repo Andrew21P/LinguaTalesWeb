@@ -2888,6 +2888,11 @@ function isPremiumUser() {
 
 function applyImportPanelGating() {
   // No UI gating — free users can use all import methods (1 book limit enforced server-side).
+  // Clean up any leftover class from previous versions.
+  els.importPanel?.classList.remove("free-plan");
+  els.bookFile.disabled = false;
+  els.bookText.disabled = false;
+  els.bookText.placeholder = "Paste text here if you do not want to upload a file.";
 }
 
 function openUpgradeModal() {
