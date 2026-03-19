@@ -585,6 +585,7 @@ window.addEventListener("popstate", (event) => {
   const view = event.state?.view || "library";
   if (view === "library") {
     els.bookAudio.pause();
+    els.importPanel.classList.add("hidden");
     switchView("library", { pushState: false });
   } else if (view === "reader" && state.currentBook) {
     switchView("reader", { pushState: false });
@@ -844,6 +845,13 @@ async function handleBookImport(event) {
     els.bookFile.value = "";
     els.bookText.value = "";
     els.bookTitle.value = "";
+    // Reset the upload zone visual state.
+    const uploadZone = document.querySelector(".upload-zone");
+    if (uploadZone) {
+      uploadZone.classList.remove("has-file");
+      uploadZone.textContent = "Click or drag a .txt, .epub, or .pdf file";
+    }
+    els.importPanel.classList.add("hidden");
     await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
   } catch (error) {
     if (error.upgradeRequired) {
