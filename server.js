@@ -297,11 +297,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://www.googletagmanager.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https://www.gutenberg.org", "https://covers.openlibrary.org"],
-      connectSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https://www.gutenberg.org", "https://covers.openlibrary.org", "https://www.googletagmanager.com"],
+      connectSrc: ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.analytics.google.com", "https://www.googletagmanager.com"],
     },
   },
 }));
