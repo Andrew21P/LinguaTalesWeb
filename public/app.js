@@ -328,7 +328,10 @@ function attachEvents() {
 
   if (els.importToggle) {
     els.importToggle.addEventListener("click", () => {
-      if (!canImportBook()) return;
+      if (!canImportBook()) {
+        els.importPanel.classList.add("hidden");
+        return;
+      }
       els.importPanel.classList.toggle("hidden");
       if (!els.importPanel.classList.contains("hidden")) {
         els.importPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -888,6 +891,9 @@ async function handleBookImport(event) {
     upsertLibraryBook(payload.book);
     state.currentBook = payload.book;
     state.currentPageIndex = payload.page?.index || 0;
+    if (!payload.existing && state.profile) {
+      state.profile.booksUsed = (state.profile.booksUsed || 0) + 1;
+    }
     renderLibraryBooks();
     setBookStatus(
       payload.existing
@@ -2774,6 +2780,9 @@ async function handleAddDiscoverBook() {
     upsertLibraryBook(payload.book);
     state.currentBook = payload.book;
     state.currentPageIndex = payload.page?.index || 0;
+    if (!payload.existing && state.profile) {
+      state.profile.booksUsed = (state.profile.booksUsed || 0) + 1;
+    }
     renderLibraryBooks();
     closeDiscoverModal();
     await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
