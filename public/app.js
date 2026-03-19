@@ -1523,7 +1523,9 @@ async function handlePrepareCurrentPage(options = {}) {
       (payload.started || payload.page.translationStatus === "running" || payload.page.audioStatus === "running");
 
     const stillCurrent = state.currentBook?.id === requestedBookId && state.currentPageIndex === requestedPageIndex;
-    if (stillCurrent) {
+    // Don't let a stale prepare response clobber audio+alignment that polling already delivered
+    const wouldDowngradeAudio = !payload.page.audioUrl && state.currentPage?.audioUrl;
+    if (stillCurrent && !wouldDowngradeAudio) {
       applyBookPage(state.currentBook || payload.book, payload.page, {
         autoplay: Boolean(options.autoplay),
         skipAutoPrepare: true,
