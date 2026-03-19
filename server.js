@@ -753,20 +753,11 @@ app.get("/api/books", requireSession, async (req, res) => {
 
 app.post("/api/books/import", requireSession, upload.single("bookFile"), async (req, res) => {
   try {
-    // File uploads (PDF, EPUB, TXT) are premium-only.
-    if (req.file && !userHasPremium(req.user)) {
-      await fsp.rm(req.file.path, { force: true }).catch(() => {});
-      return res.status(403).json({
-        ok: false,
-        error: "Uploading your own books is a Premium feature. Upgrade to unlock unlimited uploads.",
-        upgradeRequired: true,
-      });
-    }
-
     // Plan gating: free users can only have FREE_BOOK_LIMIT books.
     if (!userHasPremium(req.user)) {
       const bookCount = getUserBookCount(req.user.id);
       if (bookCount >= FREE_BOOK_LIMIT) {
+        if (req.file?.path) await fsp.rm(req.file.path, { force: true }).catch(() => {});
         return res.status(403).json({
           ok: false,
           error: `Free plan allows ${FREE_BOOK_LIMIT} book. Upgrade to Premium for unlimited books.`,
