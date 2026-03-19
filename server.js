@@ -96,6 +96,7 @@ const PREMIUM_PRICE_EUR = 19.99;
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
 const stripePriceId = process.env.STRIPE_PRICE_ID || "";
+const stripePriceIdYearly = process.env.STRIPE_PRICE_ID_YEARLY || "";
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 
@@ -303,6 +304,17 @@ app.use(helmet({
   },
 }));
 
+// ── SEO: cache immutable assets aggressively, HTML never ────
+app.use((req, res, next) => {
+  const ext = path.extname(req.path).toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".webp", ".svg", ".woff2", ".woff", ".ttf"].includes(ext)) {
+    res.setHeader("Cache-Control", "public, max-age=2592000, immutable");       // 30 days
+  } else if ([".css", ".js"].includes(ext) && !req.path.endsWith("app.js")) {
+    res.setHeader("Cache-Control", "public, max-age=604800");                    // 7 days
+  }
+  next();
+});
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
@@ -388,8 +400,15 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 app.use(express.json({ limit: "1mb" }));
 app.use(
   express.static(publicDir, {
-    setHeaders(res) {
-      res.setHeader("Cache-Control", "no-store");
+    setHeaders(res, filePath) {
+      // HTML pages: never cache (SPA revalidation)
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+      // XML sitemap: short cache
+      if (filePath.endsWith("sitemap.xml")) {
+        res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      }
     },
   })
 );
@@ -502,6 +521,7 @@ app.get("/api/meta", requireSession, (req, res) => {
       freeBookLimit: FREE_BOOK_LIMIT,
       premiumPriceEur: PREMIUM_PRICE_EUR,
       stripeConfigured: Boolean(stripe && stripePriceId),
+      yearlyAvailable: Boolean(stripe && stripePriceIdYearly),
     },
     defaults: {
       exaggeration: defaultExaggeration,
@@ -1402,6 +1422,8 @@ app.post("/api/billing/checkout", requireSession, async (req, res) => {
     return res.status(503).json({ ok: false, error: "Payments are not configured yet." });
   }
   const user = req.user;
+  const interval = req.body?.interval;
+  const selectedPrice = (interval === "yearly" && stripePriceIdYearly) ? stripePriceIdYearly : stripePriceId;
   try {
     let customerId = user.stripe_customer_id;
     if (!customerId) {
@@ -1412,7 +1434,7 @@ app.post("/api/billing/checkout", requireSession, async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
-      line_items: [{ price: stripePriceId, quantity: 1 }],
+      line_items: [{ price: selectedPrice, quantity: 1 }],
       success_url: `${appBaseUrl}/?upgraded=true`,
       cancel_url: `${appBaseUrl}/?upgraded=cancelled`,
       metadata: { userId: user.id },
@@ -1451,6 +1473,27 @@ app.get("/api/billing/status", requireSession, (req, res) => {
     freeBookLimit: FREE_BOOK_LIMIT,
     booksUsed: getUserBookCount(req.user.id),
   });
+});
+
+app.post("/api/billing/cancel", requireSession, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ ok: false, error: "Payments are not configured yet." });
+  }
+  const user = getUserById(req.user.id);
+  if (!user.stripe_subscription_id) {
+    return res.status(400).json({ ok: false, error: "No active subscription to cancel." });
+  }
+  try {
+    await stripe.subscriptions.cancel(user.stripe_subscription_id);
+    updateUser(user.id, {
+      plan: "free",
+      subscription_status: "canceled",
+      stripe_subscription_id: "",
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: sanitizeErrorMessage(error) });
+  }
 });
 
 // ── Legal pages ─────────────────────────────────────────────

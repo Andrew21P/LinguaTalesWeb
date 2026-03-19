@@ -3,11 +3,107 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Voxenor — Private Audio Reading Room</title>
+    <title>Voxenor — Turn Any Book Into an Audiobook | Learn Languages by Listening</title>
+    <meta name="description" content="Upload any PDF, EPUB, or text in any language — Voxenor translates it and generates a full audiobook with natural narration. Click any word for instant translation. Self-hosted, private, yours." />
+    <meta name="keywords" content="audiobook creator, book to audiobook, language learning, text to speech, PDF to audiobook, EPUB audiobook, learn languages, private audiobook, self-hosted, translation, vocabulary builder" />
+    <meta name="author" content="Voxenor" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://voxenor.com/" />
+    <meta name="theme-color" content="#26342B" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Voxenor" />
+    <meta property="og:title" content="Voxenor — Turn Any Book Into an Audiobook" />
+    <meta property="og:description" content="Upload a PDF in Chinese, a novel in Russian, an EPUB in English — Voxenor translates it and generates a full audiobook in your target language. Click any word for instant translation." />
+    <meta property="og:image" content="https://voxenor.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Voxenor — Turn any book into an audiobook in any language" />
+    <meta property="og:url" content="https://voxenor.com/" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Voxenor — Turn Any Book Into an Audiobook" />
+    <meta name="twitter:description" content="Upload any book, get a full audiobook in your target language. Click any word for instant translation. Self-hosted and private." />
+    <meta name="twitter:image" content="https://voxenor.com/og-image.png" />
+    <meta name="twitter:image:alt" content="Voxenor — Turn any book into an audiobook in any language" />
+
+    <!-- Structured Data: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Voxenor",
+      "description": "Turn any book into an audiobook in any language. Upload PDFs, EPUBs, or plain text — Voxenor translates and narrates with natural voice synthesis. Click any word for instant translation.",
+      "applicationCategory": "EducationalApplication",
+      "operatingSystem": "Web",
+      "url": "https://voxenor.com",
+      "image": "https://voxenor.com/logo.png",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "PDF, EPUB, and plain text import",
+        "Automatic translation to any target language",
+        "Natural text-to-speech audiobook generation",
+        "Click-to-translate vocabulary builder",
+        "Word-level audio highlighting",
+        "Self-hosted and fully private"
+      ]
+    }
+    </script>
+
+    <!-- Structured Data: FAQPage -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How does Voxenor turn a book into an audiobook?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Upload a PDF, EPUB, or paste plain text. Voxenor extracts and paginates the text, translates it to your target language, and generates natural-sounding narration using text-to-speech technology. Pages are prepared on-demand as you read."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What languages does Voxenor support?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Voxenor can import books in any language and translate them into dozens of target languages including Portuguese, Spanish, German, French, Chinese, Russian, and more. Voice synthesis is available for all major languages."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Voxenor free to use?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Voxenor offers a free tier for getting started. You can import books, generate audiobooks, and use the vocabulary builder. Premium plans unlock additional features and higher limits."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is my data private on Voxenor?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Voxenor is designed to be self-hosted on your own server. Your books, translations, and personal data stay on your infrastructure — no cloud tracking, no third-party analytics."
+          }
+        }
+      ]
+    }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233F0B0D' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/><path d='M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15z'/></svg>" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -35,11 +131,11 @@
       </nav>
 
       <!-- ── Hero: Logo + Headline + Bookshelf ── -->
-      <section class="landing-hero">
+      <section class="landing-hero" aria-label="Turn any book into an audiobook">
         <div class="hero-left">
           <div class="hero-logo-frame">
             <div class="hero-logo-glow"></div>
-            <img src="/logo.png" alt="Voxenor — The Raven's Library" class="hero-logo" width="320" height="320" />
+            <img src="/logo.png" alt="Voxenor — Turn any book into an audiobook for language learning" class="hero-logo" width="320" height="320" />
             <div class="hero-logo-ornament hero-logo-ornament-tl"></div>
             <div class="hero-logo-ornament hero-logo-ornament-tr"></div>
             <div class="hero-logo-ornament hero-logo-ornament-bl"></div>
@@ -62,6 +158,7 @@
             language while you read. Click any word to see its translation.
             Learn languages or just listen. Self-hosted, private, yours.
           </p>
+          <p class="landing-subtitle" style="font-size:0.95rem; margin-top:0.25rem; opacity:0.75;">Supports PDF to audiobook, EPUB to audiobook, language learning through reading, and instant vocabulary building.</p>
           <div class="hero-actions">
             <button id="hero-get-started" class="btn btn-primary btn-lg" type="button">
               Start your library
@@ -115,7 +212,7 @@
       </section>
 
       <!-- ── Reader Preview ── -->
-      <section class="landing-preview">
+      <section class="landing-preview" aria-label="Immersive reading experience preview">
         <div class="preview-header">
           <p class="section-eyebrow">Immersive reading experience</p>
           <h2 class="landing-h2">Read, listen, and learn<br/>on a single&nbsp;page.</h2>
@@ -170,7 +267,7 @@
       </section>
 
       <!-- ── Features ── -->
-      <section id="features-section" class="landing-features">
+      <section id="features-section" class="landing-features" aria-label="Voxenor features">
         <div class="features-header">
           <p class="section-eyebrow">Everything you need</p>
           <h2 class="landing-h2">A complete reading studio<br/>in your&nbsp;pocket.</h2>
@@ -228,7 +325,7 @@
       </section>
 
       <!-- ── How it works ── -->
-      <section class="landing-how">
+      <section class="landing-how" aria-label="How Voxenor works">
         <div class="how-header">
           <p class="section-eyebrow">Three simple steps</p>
           <h2 class="landing-h2">From any book to<br/>any&nbsp;audiobook.</h2>
@@ -265,9 +362,9 @@
       </section>
 
       <!-- ── CTA ── -->
-      <section class="landing-cta">
+      <section class="landing-cta" aria-label="Get started with Voxenor">
         <div class="cta-card">
-          <img src="/logo.png" alt="" class="cta-logo" width="200" height="200" />
+          <img src="/logo.png" alt="Voxenor logo" class="cta-logo" width="200" height="200" loading="lazy" />
           <h2 class="landing-h2">Ready to start reading?</h2>
           <p>Your private audiobook studio is one click away.</p>
           <button id="cta-get-started" class="btn btn-primary btn-lg" type="button">
@@ -278,7 +375,7 @@
       </section>
 
       <!-- ── Footer ── -->
-      <footer class="landing-footer">
+      <footer class="landing-footer" role="contentinfo">
         <div class="footer-inner">
           <div class="footer-brand">
             <img src="/vox_logo.png" alt="Voxenor" class="brand-logo brand-logo-footer" width="64" height="64" />
@@ -286,9 +383,11 @@
           </div>
           <p class="footer-note">Private audio reading room. Self-hosted.</p>
           <div class="footer-links">
-            <a href="#" onclick="event.preventDefault(); window.openLegalPage('terms')">Terms of Service</a>
+            <a href="#" data-action="legal" data-page="terms">Terms of Service</a>
             <span class="footer-sep">&middot;</span>
-            <a href="#" onclick="event.preventDefault(); window.openLegalPage('privacy')">Privacy Policy</a>
+            <a href="#" data-action="legal" data-page="privacy">Privacy Policy</a>
+            <span class="footer-sep">&middot;</span>
+            <a href="mailto:contact@voxenor.com">Contact</a>
           </div>
         </div>
       </footer>
@@ -351,7 +450,7 @@
             </label>
             <label class="field field-checkbox">
               <input id="signup-terms" type="checkbox" />
-              <span>I agree to the <a href="#" onclick="event.preventDefault(); window.openLegalPage('terms')">Terms&nbsp;of&nbsp;Service</a> and <a href="#" onclick="event.preventDefault(); window.openLegalPage('privacy')">Privacy&nbsp;Policy</a></span>
+              <span>I agree to the <a href="#" data-action="legal" data-page="terms">Terms&nbsp;of&nbsp;Service</a> and <a href="#" data-action="legal" data-page="privacy">Privacy&nbsp;Policy</a></span>
             </label>
             <button id="signup-submit" class="btn btn-primary btn-full" type="button">
               Create my library
@@ -679,6 +778,20 @@
                 <div class="plan-cards" id="plan-cards">
                   <!-- Plan cards injected by JS -->
                 </div>
+                <div id="cancel-sub-row" class="profile-cancel-row hidden">
+                  <button id="cancel-sub-btn" class="link-button danger-link" type="button">Cancel my subscription</button>
+                  <span id="cancel-sub-status" class="profile-save-status"></span>
+                </div>
+              </section>
+
+              <!-- Contact -->
+              <section class="profile-section">
+                <h3 class="profile-section-title">Need Help?</h3>
+                <p class="profile-contact-text">Questions, feedback, or issues? Reach out anytime.</p>
+                <a href="mailto:contact@voxenor.com" class="btn btn-outline btn-sm" style="display:inline-flex;align-items:center;gap:0.4rem;width:auto;">
+                  <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="16" height="12" rx="2"/><path d="M2 4l8 5 8-5"/></svg>
+                  contact@voxenor.com
+                </a>
               </section>
 
               <div class="profile-save-row profile-save-row-bottom">
@@ -888,9 +1001,9 @@
     <!--  LEGAL PAGE OVERLAY                                     -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <div id="legal-overlay" class="legal-overlay hidden">
-      <div class="legal-overlay-backdrop" onclick="window.closeLegalPage()"></div>
+      <div class="legal-overlay-backdrop" data-action="close-legal"></div>
       <div class="legal-overlay-card">
-        <button class="legal-overlay-close" onclick="window.closeLegalPage()" aria-label="Close">&times;</button>
+        <button class="legal-overlay-close" data-action="close-legal" aria-label="Close">&times;</button>
         <div id="legal-overlay-content" class="legal-overlay-content"></div>
       </div>
     </div>
@@ -898,8 +1011,40 @@
     <!-- Cookie consent banner (EU) -->
     <div id="cookie-banner" class="cookie-banner hidden">
       <p>We use essential cookies to keep you signed in and remember your preferences. No tracking, no ads.
-        <a href="#" onclick="event.preventDefault(); window.openLegalPage('privacy')">Privacy&nbsp;Policy</a></p>
+        <a href="#" data-action="legal" data-page="privacy">Privacy&nbsp;Policy</a></p>
       <button id="cookie-accept" class="cookie-accept-btn" type="button">Got it</button>
+    </div>
+
+    <noscript><p style="padding:2rem;text-align:center;">Voxenor requires JavaScript to run. Please enable JavaScript in your browser.</p></noscript>
+
+    <!-- ── Upgrade Modal ── -->
+    <div id="upgrade-modal" class="upgrade-modal hidden" aria-hidden="true">
+      <div class="upgrade-modal-backdrop"></div>
+      <div class="upgrade-modal-card">
+        <button id="upgrade-modal-close" class="upgrade-modal-close-btn" type="button" aria-label="Close">
+          <svg viewBox="0 0 20 20" width="16" height="16"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>
+        </button>
+        <div class="upgrade-modal-icon">
+          <svg viewBox="0 0 48 48" width="48" height="48" fill="none">
+            <circle cx="24" cy="24" r="22" stroke="currentColor" stroke-width="2" opacity="0.2"/>
+            <path d="M24 8l4.5 9 10 1.5-7.25 7 1.75 10L24 31l-9 4.5 1.75-10-7.25-7 10-1.5z" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h2 class="upgrade-modal-title">Unlock Unlimited Books</h2>
+        <p class="upgrade-modal-desc">You've used your free book slot. Upgrade to <strong>Premium</strong> to import unlimited books, access all languages and voices, and build your personal audiobook library without limits.</p>
+        <div class="upgrade-modal-plans">
+          <button class="upgrade-modal-plan" data-action="upgrade" data-interval="monthly" type="button">
+            <span class="upgrade-modal-plan-name">Monthly</span>
+            <span class="upgrade-modal-plan-price">&euro;19.99<small>/mo</small></span>
+          </button>
+          <button class="upgrade-modal-plan upgrade-modal-plan-best" data-action="upgrade" data-interval="yearly" type="button">
+            <span class="upgrade-modal-plan-badge">Save 37%</span>
+            <span class="upgrade-modal-plan-name">Yearly</span>
+            <span class="upgrade-modal-plan-price">&euro;149.99<small>/yr</small></span>
+          </button>
+        </div>
+        <p class="upgrade-modal-note">Cancel anytime. No refunds.</p>
+      </div>
     </div>
 
     <script src="/app.js" type="module"></script>

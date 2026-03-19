@@ -209,7 +209,7 @@ p { margin: 0; }
 .brand-logo-footer {
   width: 5rem;
   height: 5rem;
-  border-radius: var(--radius-md);
+  border-radius: 50%;
 }
 
 .brand-mark {
@@ -1470,7 +1470,7 @@ textarea::placeholder {
 .app-brand-logo {
   width: 3.5rem;
   height: 3.5rem;
-  border-radius: var(--radius-lg);
+  border-radius: 50%;
   object-fit: cover;
   box-shadow: var(--shadow-sm);
 }
@@ -3334,8 +3334,9 @@ h3 {
   transform: scale(1.03);
 }
 .plan-card.plan-card-recommended {
-  border-color: var(--merlot);
-  box-shadow: 0 0 0 1px var(--merlot), var(--shadow-md);
+  border-color: #c9963b;
+  box-shadow: 0 0 0 1.5px #c9963b, var(--shadow-md);
+  background: rgba(201, 150, 59, 0.06);
 }
 
 .plan-card-badge {
@@ -3356,8 +3357,11 @@ h3 {
   color: var(--calm);
 }
 .plan-card-badge-best {
-  background: linear-gradient(135deg, var(--merlot), #5a1213);
-  color: var(--calm);
+  background: linear-gradient(135deg, #c9963b, #a67518);
+  color: #fff;
+  font-size: 0.66rem;
+  padding: 0.2rem 0.7rem;
+  box-shadow: 0 2px 8px rgba(201, 150, 59, 0.45);
 }
 
 .plan-card-name {
@@ -3653,5 +3657,171 @@ h3 {
     text-align: center;
     padding: 1rem 1.25rem;
     gap: 0.75rem;
+  }
+}
+
+/* ── Upgrade Modal ──────────────────────────────────────── */
+.upgrade-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+.upgrade-modal.hidden { display: none; }
+.upgrade-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 6, 5, 0.6);
+  backdrop-filter: blur(14px);
+  animation: fade-in var(--duration-normal) var(--ease-out) both;
+}
+.upgrade-modal-card {
+  position: relative;
+  width: min(26rem, 100%);
+  padding: clamp(2rem, 4vw, 3rem) clamp(1.5rem, 3vw, 2.5rem);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(170deg, rgba(254, 249, 238, 0.99), rgba(240, 230, 212, 0.97));
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-xl), 0 30px 80px rgba(63, 11, 13, 0.18);
+  text-align: center;
+  animation: slide-up var(--duration-normal) var(--ease-spring) both;
+}
+.upgrade-modal-close-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+.upgrade-modal-close-btn:hover {
+  background: rgba(0,0,0,0.06);
+  color: var(--ink);
+}
+.upgrade-modal-icon {
+  color: var(--merlot);
+  margin-bottom: 0.75rem;
+}
+.upgrade-modal-title {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--noir);
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.01em;
+}
+.upgrade-modal-desc {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-bottom: 1.5rem;
+}
+.upgrade-modal-desc strong {
+  color: var(--ink);
+}
+.upgrade-modal-plans {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.upgrade-modal-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.2rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--line-strong);
+  background: rgba(255,255,255, 0.6);
+  cursor: pointer;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast);
+}
+.upgrade-modal-plan:hover {
+  border-color: var(--forest);
+  box-shadow: 0 0 0 2px var(--forest);
+  transform: translateY(-2px);
+}
+.upgrade-modal-plan-best {
+  border-color: var(--merlot);
+  background: rgba(63, 11, 13, 0.04);
+}
+.upgrade-modal-plan-best:hover {
+  border-color: var(--merlot);
+  box-shadow: 0 0 0 2px var(--merlot);
+}
+.upgrade-modal-plan-badge {
+  position: absolute;
+  top: -0.5rem;
+  right: -0.3rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--merlot), #5a1213);
+  color: var(--calm);
+  white-space: nowrap;
+}
+.upgrade-modal-plan-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+.upgrade-modal-plan-price {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--noir);
+}
+.upgrade-modal-plan-price small {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.upgrade-modal-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+/* ── Profile cancel row ──────────────────────────────── */
+.profile-cancel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.profile-cancel-row.hidden { display: none; }
+.danger-link {
+  color: var(--merlot);
+  font-size: 0.82rem;
+}
+.danger-link:hover {
+  text-decoration: underline;
+}
+.profile-contact-text {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.6rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  .upgrade-modal-plans {
+    grid-template-columns: 1fr;
   }
 }

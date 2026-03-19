@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /audio/
+Disallow: /voices/
+Disallow: /library-assets/
+
+Sitemap: https://voxenor.com/sitemap.xml

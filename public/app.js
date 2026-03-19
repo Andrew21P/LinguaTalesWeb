@@ -143,6 +143,11 @@ const els = {
   profileAudiobookLang: document.querySelector("#profile-audiobook-lang"),
   profileLangStatus: document.querySelector("#profile-lang-status"),
   planCards: document.querySelector("#plan-cards"),
+  cancelSubRow: document.querySelector("#cancel-sub-row"),
+  cancelSubBtn: document.querySelector("#cancel-sub-btn"),
+  cancelSubStatus: document.querySelector("#cancel-sub-status"),
+  upgradeModal: document.querySelector("#upgrade-modal"),
+  upgradeModalClose: document.querySelector("#upgrade-modal-close"),
   welcomeModal: document.querySelector("#welcome-modal"),
   welcomeName: document.querySelector("#welcome-name"),
   welcomeListenerLang: document.querySelector("#welcome-listener-lang"),
@@ -269,6 +274,7 @@ function attachEvents() {
 
   if (els.importToggle) {
     els.importToggle.addEventListener("click", () => {
+      if (!canImportBook()) return;
       els.importPanel.classList.toggle("hidden");
       if (!els.importPanel.classList.contains("hidden")) {
         els.importPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -623,10 +629,9 @@ function renderProfile(profile, localAccessUrls) {
   }
 
   const billingHtml = (profile.plan === "premium")
-    ? `<button class="link-button" onclick="handleManageBillingClick()">Manage subscription</button>`
-    : `<button class="link-button" onclick="handleUpgradeClick()">Upgrade to Premium — €19.99/month</button>`;
+    ? `<span style="font-size:0.85rem;color:var(--muted)">Premium subscriber</span>`
+    : `<button class="link-button" data-action="upgrade" data-interval="monthly">Upgrade to Premium — €19.99/month</button>`;
   els.profileDetails.innerHTML = `${escapeHtml(profile.email)}<br/>${billingHtml}`;
-  window.handleManageBillingClick = handleManageBillingClick;
 
   els.networkList.innerHTML = (localAccessUrls || [])
     .map((url) => `<span>${escapeHtml(url)}</span>`)
@@ -815,7 +820,7 @@ async function handleBookImport(event) {
     await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
   } catch (error) {
     if (error.upgradeRequired) {
-      setBookStatus(`${error.message} <button onclick="handleUpgradeClick()" class="link-button" style="text-decoration:underline">Upgrade now</button>`, true);
+      openUpgradeModal();
     } else {
       setBookStatus(error.message, true);
     }
@@ -2648,6 +2653,7 @@ async function handleAddDiscoverBook() {
     await loadLibraryBook(payload.book.id, payload.book.progress?.pageIndex || 0);
   } catch (error) {
     btn.textContent = error.upgradeRequired ? "Upgrade to Premium for unlimited books" : (error.message || "Failed — try again");
+    if (error.upgradeRequired) openUpgradeModal();
   } finally {
     btn.disabled = false;
     setTimeout(() => {
@@ -2707,11 +2713,13 @@ function showConfirmDialog({ title = "Are you sure?", message = "", okLabel = "C
 
 // ── Plan & Billing ──────────────────────────────────────────
 
-async function handleUpgradeClick() {
+async function handleUpgradeClick(interval) {
+  closeUpgradeModal();
   try {
     const payload = await fetchJson("/api/billing/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interval: interval || "monthly" }),
     });
     if (payload.url) window.location.href = payload.url;
   } catch (error) {
@@ -2720,16 +2728,82 @@ async function handleUpgradeClick() {
 }
 window.handleUpgradeClick = handleUpgradeClick;
 
-async function handleManageBillingClick() {
+// Global event delegation for data-action handlers (CSP-safe, no inline onclick)
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.dataset.action;
+  if (action === "upgrade") {
+    e.preventDefault();
+    handleUpgradeClick(el.dataset.interval || "monthly");
+  } else if (action === "legal") {
+    e.preventDefault();
+    window.openLegalPage(el.dataset.page);
+  } else if (action === "close-legal") {
+    e.preventDefault();
+    window.closeLegalPage();
+  }
+});
+
+function canImportBook() {
+  const profile = state.profile || {};
+  const plan = state.plan || {};
+  if (profile.plan === "premium") return true;
+  const limit = plan.freeBookLimit || 1;
+  const used = profile.booksUsed || 0;
+  if (used >= limit) {
+    openUpgradeModal();
+    return false;
+  }
+  return true;
+}
+
+function openUpgradeModal() {
+  if (!els.upgradeModal) return;
+  els.upgradeModal.classList.remove("hidden");
+  els.upgradeModal.setAttribute("aria-hidden", "false");
+}
+function closeUpgradeModal() {
+  if (!els.upgradeModal) return;
+  els.upgradeModal.classList.add("hidden");
+  els.upgradeModal.setAttribute("aria-hidden", "true");
+}
+window.openUpgradeModal = openUpgradeModal;
+
+if (els.upgradeModalClose) {
+  els.upgradeModalClose.addEventListener("click", closeUpgradeModal);
+}
+if (els.upgradeModal) {
+  els.upgradeModal.querySelector(".upgrade-modal-backdrop")?.addEventListener("click", closeUpgradeModal);
+}
+
+async function handleCancelSubscription() {
+  const confirmed = await showConfirmDialog({
+    title: "Cancel Premium?",
+    message: "You'll lose access to unlimited books immediately. No refund will be issued. Are you sure?",
+    okLabel: "Cancel subscription",
+  });
+  if (!confirmed) return;
+  const statusEl = els.cancelSubStatus;
+  if (statusEl) { statusEl.textContent = "Canceling..."; statusEl.className = "profile-save-status"; }
   try {
-    const payload = await fetchJson("/api/billing/portal", {
+    await fetchJson("/api/billing/cancel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
-    if (payload.url) window.location.href = payload.url;
+    if (statusEl) { statusEl.textContent = "Subscription canceled."; statusEl.className = "profile-save-status is-ok"; }
+    const meta = await fetchJson("/api/meta");
+    state.plan = meta.plan || state.plan;
+    state.profile = meta.profile || state.profile;
+    renderProfile(meta);
+    // Delay hiding cancel row so the user sees the success message
+    setTimeout(() => renderPlanCards(), 2000);
   } catch (error) {
-    alert(error.message || "Could not open billing portal.");
+    if (statusEl) { statusEl.textContent = error.message || "Could not cancel."; statusEl.className = "profile-save-status is-error"; }
   }
+}
+if (els.cancelSubBtn) {
+  els.cancelSubBtn.addEventListener("click", handleCancelSubscription);
 }
 
 // ── Profile Modal ───────────────────────────────────────────
@@ -2866,15 +2940,16 @@ function renderPlanCards() {
       <div class="plan-card-desc">Upload unlimited books.<br/>All languages &amp; voices.</div>
       <div class="plan-card-action">
         ${isPremium
-          ? `<button class="btn btn-outline btn-sm" onclick="handleManageBillingClick()">Manage billing</button>`
+          ? ``
           : stripeConfigured
-            ? `<button class="btn btn-primary btn-sm" onclick="handleUpgradeClick()">Upgrade</button>`
+            ? `<button class="btn btn-primary btn-sm" data-action="upgrade" data-interval="monthly">Upgrade</button>`
             : `<button class="btn btn-outline btn-sm" disabled>Coming soon</button>`
         }
       </div>
     </div>`;
 
   // Yearly card
+  const yearlyAvailable = plan.yearlyAvailable;
   html += `
     <div class="plan-card plan-card-recommended">
       <span class="plan-card-badge plan-card-badge-best">Best value</span>
@@ -2883,13 +2958,23 @@ function renderPlanCards() {
       <div class="plan-card-desc">Save 37% — everything in monthly,<br/>billed annually.</div>
       <div class="plan-card-action">
         ${isPremium
-          ? `<button class="btn btn-outline btn-sm" onclick="handleManageBillingClick()">Manage billing</button>`
-          : `<button class="btn btn-outline btn-sm" disabled>Coming soon</button>`
+          ? ``
+          : yearlyAvailable
+            ? `<button class="btn btn-primary btn-sm" data-action="upgrade" data-interval="yearly">Upgrade</button>`
+            : `<button class="btn btn-outline btn-sm" disabled>Coming soon</button>`
         }
       </div>
     </div>`;
 
   els.planCards.innerHTML = html;
+
+  // Show/hide cancel button for premium users
+  if (els.cancelSubRow) {
+    els.cancelSubRow.classList.toggle("hidden", !isPremium);
+  }
+  if (els.cancelSubStatus) {
+    els.cancelSubStatus.textContent = "";
+  }
 }
 
 // ── Welcome (First Login) ───────────────────────────────────
