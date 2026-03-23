@@ -129,9 +129,9 @@ const els = {
   readerPageLabel: document.querySelector("#reader-page-label"),
   readerProgressFill: document.querySelector("#reader-progress-fill"),
   readerStatusPill: document.querySelector("#reader-status-pill"),
-  activeLanguagePill: document.querySelector("#active-language-pill"),
-  translationLanguagePill: document.querySelector("#translation-language-pill"),
-  listenerLanguagePill: document.querySelector("#listener-language-pill"),
+  readerAudiobookLang: document.querySelector("#reader-audiobook-lang"),
+  readerListenerLang: document.querySelector("#reader-listener-lang"),
+  readerLangStatus: document.querySelector("#reader-lang-status"),
   readerDeleteBook: document.querySelector("#reader-delete-book"),
   goToPageForm: document.querySelector("#go-to-page-form"),
   goToPageInput: document.querySelector("#go-to-page-input"),
@@ -389,6 +389,8 @@ function attachEvents() {
   els.bookAudio.addEventListener("seeking", syncPlaybackHighlight);
 
   els.readerContent.addEventListener("scroll", handleReaderManualScroll, { passive: true });
+  els.readerAudiobookLang.addEventListener("change", () => void handleReaderLanguageChange());
+  els.readerListenerLang.addEventListener("change", () => void handleReaderLanguageChange());
   document.addEventListener("selectionchange", scheduleSelectionTranslate);
   document.addEventListener("mouseup", scheduleSelectionTranslate);
   document.addEventListener("keyup", scheduleSelectionTranslate);
@@ -448,6 +450,7 @@ async function initializeAuthenticatedApp(profileOverride = null, { isNewSignup 
   restoreReaderFontSize();
 
   renderLanguageOptions(meta);
+  populateReaderLangSelects();
   renderSupportedLanguages(meta.fullySupportedLanguages || []);
   renderProfile(meta.profile, meta.localAccessUrls || []);
 
@@ -2436,19 +2439,68 @@ async function handleDeleteSavedWord(savedWordId) {
 }
 
 function updateLanguagePills() {
-  const chosenBookLanguage =
-    els.bookLanguage.value === "auto"
-      ? `${getLanguageLabel(state.detectedBookLanguage)} detected`
-      : getLanguageLabel(els.bookLanguage.value);
-
-  els.activeLanguagePill.textContent = `Book: ${chosenBookLanguage}`;
-  els.translationLanguagePill.textContent = `Audio: ${getLanguageLabel(els.audiobookLanguage.value)}`;
-  els.listenerLanguagePill.textContent = `You: ${getLanguageLabel(els.listenerLanguage.value)}`;
-  updateVoicePill();
+  // Language pills replaced by reader dropdowns — sync the reader selects to match current book.
+  if (state.currentBook) {
+    els.readerAudiobookLang.value = state.currentBook.audiobookLanguage || els.audiobookLanguage.value;
+    els.readerListenerLang.value = state.currentBook.listenerLanguage || els.listenerLanguage.value;
+  }
 }
 
 function updateVoicePill() {
   els.voicePill.textContent = `Voice: ${state.selectedVoice?.name || "default"}`;
+}
+
+function populateReaderLangSelects() {
+  const copyOpts = (src, dest) => {
+    dest.innerHTML = "";
+    for (const o of src.options) {
+      const el = document.createElement("option");
+      el.value = o.value;
+      el.textContent = o.textContent;
+      dest.append(el);
+    }
+  };
+  copyOpts(els.audiobookLanguage, els.readerAudiobookLang);
+  copyOpts(els.listenerLanguage, els.readerListenerLang);
+}
+
+async function handleReaderLanguageChange() {
+  if (!state.currentBook) return;
+  const newAudiobook = els.readerAudiobookLang.value;
+  const newListener = els.readerListenerLang.value;
+  const bookId = state.currentBook.id;
+  const audiobookChanged = normalizeLanguageCode(newAudiobook) !== normalizeLanguageCode(state.currentBook.audiobookLanguage);
+
+  els.readerLangStatus.textContent = audiobookChanged ? "Updating language and regenerating..." : "Saving...";
+  els.readerLangStatus.className = "status-text";
+
+  try {
+    const payload = await fetchJson(`/api/books/${bookId}/languages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audiobookLanguage: newAudiobook, listenerLanguage: newListener }),
+    });
+    state.currentBook = payload.book;
+    upsertLibraryBook(payload.book);
+    renderLibraryBooks();
+
+    // Sync the import form dropdowns too.
+    els.audiobookLanguage.value = newAudiobook;
+    els.listenerLanguage.value = newListener;
+
+    els.readerLangStatus.textContent = audiobookChanged ? "Language changed. Preparing page..." : "Saved.";
+    setTimeout(() => { els.readerLangStatus.textContent = ""; }, 2500);
+
+    // Reload the current page and re-trigger preparation if audiobook language changed.
+    const pageIndex = state.currentPageIndex;
+    await openBookPage(pageIndex);
+    if (audiobookChanged) {
+      await handlePrepareCurrentPage({ silent: false });
+    }
+  } catch (err) {
+    els.readerLangStatus.textContent = err.message;
+    els.readerLangStatus.className = "status-text is-error";
+  }
 }
 
 async function translate(text) {

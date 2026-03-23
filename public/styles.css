@@ -1535,6 +1535,22 @@ h3 {
 
 .topbar-actions { justify-content: flex-end; gap: 0.6rem; }
 
+.reader-lang-settings {
+  display: grid;
+  gap: 0.6rem;
+}
+.reader-lang-settings .field.compact { gap: 0.2rem; }
+.reader-lang-settings .field.compact span { font-size: 0.75rem; color: var(--muted); }
+.reader-lang-settings select {
+  font-size: 0.82rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--cream);
+  color: var(--ink);
+  width: 100%;
+}
+
 .topbar-note {
   color: var(--muted);
   align-self: center;

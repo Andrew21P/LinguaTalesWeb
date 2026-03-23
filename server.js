@@ -924,6 +924,48 @@ app.post("/api/books/:bookId/progress", requireSession, validateBookId, async (r
   }
 });
 
+app.post("/api/books/:bookId/languages", requireSession, validateBookId, async (req, res) => {
+  try {
+    if (!isUserBook(req.user.id, req.params.bookId)) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
+    const book = await readLibraryBook(req.params.bookId);
+    if (!book) {
+      return res.status(404).json({ ok: false, error: "That book was not found." });
+    }
+
+    const newAudiobookLang = normalizeLanguageCode(req.body?.audiobookLanguage || book.audiobookLanguage);
+    const newListenerLang = normalizeLanguageCode(req.body?.listenerLanguage || book.listenerLanguage);
+    const audiobookChanged = newAudiobookLang !== normalizeLanguageCode(book.audiobookLanguage);
+
+    book.listenerLanguage = newListenerLang;
+
+    if (audiobookChanged) {
+      book.audiobookLanguage = newAudiobookLang;
+      // Clear all translations and audio since the target language changed.
+      for (const page of book.pages) {
+        page.translatedText = "";
+        page.translationStatus = "idle";
+        page.translationProvider = "";
+        page.translationProviderTarget = "";
+      }
+      await clearBookAudioCache(book);
+    }
+
+    book.updatedAt = new Date().toISOString();
+    await persistLibraryBook(book);
+
+    const pageIndex = book.progress?.pageIndex || 0;
+    return res.json({
+      ok: true,
+      book: toPublicBook(book),
+      page: toPublicBookPage(book, pageIndex),
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: sanitizeErrorMessage(error) });
+  }
+});
+
 app.post("/api/books/:bookId/pages/:pageIndex/prepare", requireSession, validateBookId, async (req, res) => {
   try {
     if (!isUserBook(req.user.id, req.params.bookId)) {

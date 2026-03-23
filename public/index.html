@@ -859,10 +859,16 @@
                   <button class="btn btn-secondary" type="submit">Open page</button>
                 </form>
 
-                <div class="meta-grid">
-                  <span id="active-language-pill" class="meta-pill">Book: auto</span>
-                  <span id="translation-language-pill" class="meta-pill">Audio: PT-PT</span>
-                  <span id="listener-language-pill" class="meta-pill">You: EN</span>
+                <div class="reader-lang-settings">
+                  <label class="field compact">
+                    <span>Audiobook language</span>
+                    <select id="reader-audiobook-lang"></select>
+                  </label>
+                  <label class="field compact">
+                    <span>You speak</span>
+                    <select id="reader-listener-lang"></select>
+                  </label>
+                  <span id="reader-lang-status" class="status-text"></span>
                 </div>
 
                 <button id="reader-delete-book" class="ghost-button danger-button" type="button">Delete this book</button>
