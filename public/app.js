@@ -665,11 +665,13 @@ function renderLanguageOptions(meta) {
   populateSelect(els.listenerLanguage, listenerLanguages);
   populateSelect(els.audiobookLanguage, audiobookLanguages);
   if (discoverEls.modalAudiobookLang) populateSelect(discoverEls.modalAudiobookLang, audiobookLanguages);
+  if (discoverEls.modalListenerLang) populateSelect(discoverEls.modalListenerLang, listenerLanguages);
 
   els.bookLanguage.value = preferences.sourceLanguage || "auto";
   els.listenerLanguage.value = preferences.listenerLanguage || "en";
   els.audiobookLanguage.value = preferences.audiobookLanguage || "pt-pt";
   if (discoverEls.modalAudiobookLang) discoverEls.modalAudiobookLang.value = preferences.audiobookLanguage || "pt-pt";
+  if (discoverEls.modalListenerLang) discoverEls.modalListenerLang.value = preferences.listenerLanguage || "en";
   updateLanguagePills();
 }
 
@@ -2589,8 +2591,9 @@ const discoverEls = {
   modalDesc: document.querySelector("#discover-modal-desc"),
   modalAdd: document.querySelector("#discover-modal-add"),
   modalNoAudiobook: document.querySelector("#discover-no-audiobook"),
-  modalLangField: document.querySelector("#discover-lang-field"),
+  modalLangFields: document.querySelector("#discover-lang-fields"),
   modalAudiobookLang: document.querySelector("#discover-audiobook-language"),
+  modalListenerLang: document.querySelector("#discover-listener-language"),
 };
 
 let discoverSearchTimeout = null;
@@ -2643,8 +2646,8 @@ function initDiscover() {
   if (discoverEls.modalAdd) discoverEls.modalAdd.addEventListener("click", handleAddDiscoverBook);
   if (discoverEls.modalNoAudiobook) {
     discoverEls.modalNoAudiobook.addEventListener("change", () => {
-      if (discoverEls.modalLangField) {
-        discoverEls.modalLangField.style.display = discoverEls.modalNoAudiobook.checked ? "none" : "";
+      if (discoverEls.modalLangFields) {
+        discoverEls.modalLangFields.style.display = discoverEls.modalNoAudiobook.checked ? "none" : "";
       }
     });
   }
@@ -2788,8 +2791,8 @@ function openDiscoverModal(book) {
   if (discoverEls.modalNoAudiobook) {
     discoverEls.modalNoAudiobook.checked = false;
   }
-  if (discoverEls.modalLangField) {
-    discoverEls.modalLangField.style.display = "";
+  if (discoverEls.modalLangFields) {
+    discoverEls.modalLangFields.style.display = "";
   }
 
   discoverEls.modal.classList.remove("hidden");
@@ -2825,7 +2828,7 @@ async function handleAddDiscoverBook() {
         textUrl: book.textUrl,
         coverUrl: book.coverUrl || "",
         audiobookLanguage: discoverEls.modalAudiobookLang?.value || els.audiobookLanguage.value,
-        listenerLanguage: els.listenerLanguage.value,
+        listenerLanguage: discoverEls.modalListenerLang?.value || els.listenerLanguage.value,
         skipAudiobook: discoverEls.modalNoAudiobook?.checked || false,
       }),
     });

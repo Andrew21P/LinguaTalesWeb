@@ -714,10 +714,16 @@
                   <p id="discover-modal-subjects" class="discover-modal-meta"></p>
                   <p id="discover-modal-desc" class="discover-modal-desc"></p>
                   <div class="discover-modal-actions">
-                    <label class="field discover-modal-lang-field" id="discover-lang-field">
-                      <span>Audiobook language</span>
-                      <select id="discover-audiobook-language"></select>
-                    </label>
+                    <div class="discover-modal-lang-fields" id="discover-lang-fields">
+                      <label class="field discover-modal-lang-field">
+                        <span>You speak</span>
+                        <select id="discover-listener-language"></select>
+                      </label>
+                      <label class="field discover-modal-lang-field">
+                        <span>Audiobook language</span>
+                        <select id="discover-audiobook-language"></select>
+                      </label>
+                    </div>
                     <label class="discover-modal-no-audio-label">
                       <input type="checkbox" id="discover-no-audiobook" />
                       <span>I'll just read, no audiobook</span>
