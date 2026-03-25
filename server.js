@@ -1586,7 +1586,7 @@ app.post("/api/analytics/event", requireSession, (req, res) => {
 
 // ── Legal pages ─────────────────────────────────────────────
 
-app.get("/admin", requireSession, requireAdmin, (_req, res) => res.sendFile(path.join(publicDir, "admin.html")));
+app.get("/admin", (_req, res) => res.sendFile(path.join(publicDir, "admin.html")));
 app.get("/terms", (_req, res) => res.sendFile(path.join(publicDir, "terms.html")));
 app.get("/privacy", (_req, res) => res.sendFile(path.join(publicDir, "privacy.html")));
 
