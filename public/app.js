@@ -1754,9 +1754,10 @@ function visiblePageNeedsPolling(page, { preview = false } = {}) {
     return true;
   }
 
-  // Keep polling while translation is done but audio pipeline hasn't started/finished yet.
-  if (!state.currentBook.skipAudiobook && !page.audioUrl &&
-      (page.translationStatus === "ready" || page.audioStatus === "ready")) {
+  // Keep polling whenever the page still lacks audio on an audiobook book.
+  // This covers the race where the async server task hasn't set "running" yet,
+  // as well as the gap between translation-ready and audio-pipeline start.
+  if (!state.currentBook.skipAudiobook && !page.audioUrl) {
     return true;
   }
 
