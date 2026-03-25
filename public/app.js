@@ -482,6 +482,10 @@ async function initializeAuthenticatedApp(profileOverride = null, { isNewSignup 
 
 function showAuthShell(visible) {
   els.authShell.classList.toggle("hidden", !visible);
+  // Pause heavy GPU animations while auth overlay is open
+  document.querySelectorAll(".landing-orb, .hero-logo-glow").forEach(el => {
+    el.style.animationPlayState = visible ? "paused" : "";
+  });
 }
 
 function showLandingPage(visible) {
