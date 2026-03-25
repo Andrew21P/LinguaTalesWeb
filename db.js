@@ -210,13 +210,18 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS user_books (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     book_id TEXT NOT NULL,
+    source  TEXT NOT NULL DEFAULT 'unknown',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, book_id)
   );
 `);
 
-export function linkBookToUser(userId, bookId) {
-  db.prepare("INSERT OR IGNORE INTO user_books (user_id, book_id) VALUES (?, ?)").run(userId, bookId);
+try {
+  db.exec("ALTER TABLE user_books ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'");
+} catch { /* column already exists */ }
+
+export function linkBookToUser(userId, bookId, source = "unknown") {
+  db.prepare("INSERT OR IGNORE INTO user_books (user_id, book_id, source) VALUES (?, ?, ?)").run(userId, bookId, source);
 }
 
 export function unlinkBookFromUser(userId, bookId) {
@@ -321,10 +326,52 @@ export function getAnalyticsSummary() {
      ORDER BY e.created_at DESC LIMIT 50`
   ).all();
 
+  // ── User list with books ──
+  const userList = db.prepare(
+    `SELECT u.id, u.email, u.name, u.plan, u.subscription_status, u.created_at,
+            (SELECT COUNT(*) FROM user_books ub WHERE ub.user_id = u.id) as book_count,
+            (SELECT COUNT(*) FROM saved_words sw WHERE sw.user_id = u.id) as word_count,
+            (SELECT e.country FROM analytics_events e WHERE e.user_id = u.id AND e.country != '' ORDER BY e.created_at DESC LIMIT 1) as country,
+            (SELECT e.os FROM analytics_events e WHERE e.user_id = u.id AND e.os != '' ORDER BY e.created_at DESC LIMIT 1) as os,
+            (SELECT e.browser FROM analytics_events e WHERE e.user_id = u.id AND e.browser != '' ORDER BY e.created_at DESC LIMIT 1) as browser,
+            (SELECT e.language FROM analytics_events e WHERE e.user_id = u.id AND e.language != '' ORDER BY e.created_at DESC LIMIT 1) as language,
+            (SELECT e.ip FROM analytics_events e WHERE e.user_id = u.id AND e.ip != '' ORDER BY e.created_at DESC LIMIT 1) as last_ip,
+            (SELECT MAX(e.created_at) FROM analytics_events e WHERE e.user_id = u.id) as last_active
+     FROM users u
+     ORDER BY u.created_at DESC`
+  ).all();
+
+  // ── Books per user with source ──
+  const userBooks = db.prepare(
+    `SELECT ub.user_id, ub.book_id, ub.source, ub.created_at
+     FROM user_books ub
+     ORDER BY ub.created_at DESC`
+  ).all();
+
+  // ── Source breakdown ──
+  const sourceBreakdown = db.prepare(
+    `SELECT source, COUNT(*) as count FROM user_books GROUP BY source ORDER BY count DESC`
+  ).all();
+
+  // ── Active users today ──
+  const activeToday = db.prepare(
+    `SELECT COUNT(DISTINCT user_id) as count FROM analytics_events WHERE created_at >= date('now') AND user_id IS NOT NULL`
+  ).get().count;
+
+  // ── Active users last 7 days ──
+  const activeLast7 = db.prepare(
+    `SELECT COUNT(DISTINCT user_id) as count FROM analytics_events WHERE created_at >= datetime('now', '-7 days') AND user_id IS NOT NULL`
+  ).get().count;
+
+  // ── Total saved words ──
+  const totalWords = db.prepare("SELECT COUNT(*) as count FROM saved_words").get().count;
+
   return {
-    totalUsers, premiumUsers, totalBooks, totalEvents,
+    totalUsers, premiumUsers, totalBooks, totalEvents, totalWords,
+    activeToday, activeLast7,
     eventCounts, last7days, topCountries, topOS, topBrowsers, topLanguages,
     recentSignups, recentEvents,
+    userList, userBooks, sourceBreakdown,
   };
 }
 

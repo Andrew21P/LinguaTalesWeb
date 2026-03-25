@@ -22,6 +22,7 @@ import {
   userHasPremium, getUserBookCount,
   logAnalyticsEvent, getAnalyticsSummary,
 } from "./db.js";
+import db from "./db.js";
 import * as s3 from "./storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -766,7 +767,7 @@ app.post("/api/books/import", requireSession, upload.single("bookFile"), async (
       }
     }
     const imported = await createLibraryBookFromRequest(req);
-    linkBookToUser(req.user.id, imported.book.id);
+    linkBookToUser(req.user.id, imported.book.id, req.file ? "upload" : "paste");
     trackEvent(req, "book_import", { bookId: imported.book.id, title: imported.book.title, method: req.file ? "upload" : "paste" });
     return res.json({
       ok: true,
@@ -1428,7 +1429,7 @@ app.post("/api/books/import-gutenberg", requireSession, async (req, res) => {
       _gutenbergCoverUrl: coverUrl || "",
     };
     const imported = await createLibraryBookFromRequest(fakeReq);
-    linkBookToUser(req.user.id, imported.book.id);
+    linkBookToUser(req.user.id, imported.book.id, "gutenberg");
     trackEvent(req, "book_import", { bookId: imported.book.id, title: imported.book.title, method: "gutenberg" });
     return res.json({
       ok: true,
@@ -1561,9 +1562,57 @@ app.post("/api/billing/cancel", requireSession, async (req, res) => {
 
 // ── Admin Analytics ─────────────────────────────────────────
 
-app.get("/api/admin/analytics", requireSession, requireAdmin, (_req, res) => {
+app.get("/api/admin/analytics", requireSession, requireAdmin, async (_req, res) => {
   try {
     const data = getAnalyticsSummary();
+
+    // Enrich user books with titles from library JSON files
+    const bookTitleCache = new Map();
+    for (const ub of data.userBooks || []) {
+      if (!bookTitleCache.has(ub.book_id)) {
+        try {
+          const metaPath = path.join(libraryDir, ub.book_id, "book.json");
+          if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(await fsp.readFile(metaPath, "utf8"));
+            bookTitleCache.set(ub.book_id, {
+              title: meta.title || "Untitled",
+              sourceType: meta.sourceType || "",
+              detectedLanguage: meta.detectedLanguage || "",
+              audiobookLanguage: meta.audiobookLanguage || "",
+              totalPages: Array.isArray(meta.pages) ? meta.pages.length : 0,
+            });
+          } else {
+            bookTitleCache.set(ub.book_id, { title: "(deleted)", sourceType: "", detectedLanguage: "", audiobookLanguage: "", totalPages: 0 });
+          }
+        } catch {
+          bookTitleCache.set(ub.book_id, { title: "(error)", sourceType: "", detectedLanguage: "", audiobookLanguage: "", totalPages: 0 });
+        }
+      }
+      const info = bookTitleCache.get(ub.book_id);
+      ub.title = info.title;
+      ub.sourceType = info.sourceType;
+      ub.detectedLanguage = info.detectedLanguage;
+      ub.audiobookLanguage = info.audiobookLanguage;
+      ub.totalPages = info.totalPages;
+    }
+
+    // Backfill countries for IPs that haven't been resolved yet
+    const missingCountryIps = [...new Set(
+      (data.userList || []).filter(u => !u.country && u.last_ip).map(u => u.last_ip)
+    )];
+    if (missingCountryIps.length > 0) {
+      await Promise.all(missingCountryIps.slice(0, 20).map(async ip => {
+        const country = await lookupCountry(ip);
+        if (country) {
+          db.prepare("UPDATE analytics_events SET country = ? WHERE ip = ? AND country = ''").run(country, ip);
+          // Patch in-memory data too
+          for (const u of data.userList) {
+            if (u.last_ip === ip && !u.country) u.country = country;
+          }
+        }
+      }));
+    }
+
     return res.json({ ok: true, ...data });
   } catch (error) {
     console.error("Admin analytics error:", error.message);
@@ -3449,13 +3498,49 @@ function parseUA(ua) {
   return { os, browser };
 }
 
+// ── GeoIP lookup (ip-api.com, free tier — 45 req/min) ──────
+
+const geoIpCache = new Map(); // ip → { country, fetchedAt }
+const GEO_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 h
+
+async function lookupCountry(ip) {
+  if (!ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) return "";
+  const cached = geoIpCache.get(ip);
+  if (cached && Date.now() - cached.fetchedAt < GEO_CACHE_TTL) return cached.country;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return cached?.country || "";
+    const data = await res.json();
+    const country = data.status === "success" ? (data.country || "") : "";
+    geoIpCache.set(ip, { country, fetchedAt: Date.now() });
+    // Keep cache from growing unbounded
+    if (geoIpCache.size > 5000) {
+      const oldest = [...geoIpCache.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt).slice(0, 1000);
+      for (const [k] of oldest) geoIpCache.delete(k);
+    }
+    return country;
+  } catch {
+    return cached?.country || "";
+  }
+}
+
 function trackEvent(req, event, payload = {}) {
   const ua = parseUA(req.headers["user-agent"]);
   const lang = (req.headers["accept-language"] || "").split(",")[0].trim() || "";
   const ip = (req.ip || req.headers["x-forwarded-for"] || "").replace(/^::ffff:/, "");
+  // Fire-and-forget country lookup, log event immediately with empty country, update async
   logAnalyticsEvent(req.user?.id || null, event, {
     payload, os: ua.os, browser: ua.browser, language: lang, ip,
   });
+  // Best-effort: backfill country asynchronously
+  lookupCountry(ip).then(country => {
+    if (country) {
+      try { db.prepare("UPDATE analytics_events SET country = ? WHERE ip = ? AND country = ''").run(country, ip); } catch { /* ignore */ }
+    }
+  }).catch(() => {});
 }
 
 function getLocalAccessUrls(activePort) {
