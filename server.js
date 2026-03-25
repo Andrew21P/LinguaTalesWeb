@@ -1562,8 +1562,13 @@ app.post("/api/billing/cancel", requireSession, async (req, res) => {
 // ── Admin Analytics ─────────────────────────────────────────
 
 app.get("/api/admin/analytics", requireSession, requireAdmin, (_req, res) => {
-  const data = getAnalyticsSummary();
-  return res.json({ ok: true, ...data });
+  try {
+    const data = getAnalyticsSummary();
+    return res.json({ ok: true, ...data });
+  } catch (error) {
+    console.error("Admin analytics error:", error.message);
+    return res.status(500).json({ ok: false, error: "Failed to load analytics." });
+  }
 });
 
 app.post("/api/analytics/event", requireSession, (req, res) => {

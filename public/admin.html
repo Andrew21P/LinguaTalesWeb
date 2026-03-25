@@ -43,13 +43,14 @@
       try {
         const res = await fetch("/api/admin/analytics", { credentials: "same-origin" });
         if (!res.ok) {
-          content.innerHTML = `<div class="loading">Access denied or not logged in. <a href="/">Go to Voxenor</a></div>`;
+          const errBody = await res.json().catch(() => ({}));
+          content.innerHTML = `<div class="loading">${res.status === 401 ? 'Not logged in.' : res.status === 403 ? 'Access denied — admin only.' : 'Server error.'} <a href="/">Go to Voxenor</a></div>`;
           return;
         }
         const d = await res.json();
         render(d);
       } catch (e) {
-        content.innerHTML = `<div class="loading">Error: ${e.message}</div>`;
+        content.innerHTML = `<div class="loading">Error loading analytics: ${e.message}</div>`;
       }
     }
 

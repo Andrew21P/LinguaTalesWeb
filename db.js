@@ -252,6 +252,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_analytics_user ON analytics_events(user_id);
 `);
 
+// Ensure ip column exists (may be missing if table was created before it was added).
+try {
+  db.exec("ALTER TABLE analytics_events ADD COLUMN ip TEXT DEFAULT ''");
+} catch {
+  // Column already exists — ignore.
+}
+
 export function logAnalyticsEvent(userId, event, { payload = {}, country = "", os = "", browser = "", language = "", ip = "" } = {}) {
   db.prepare(
     `INSERT INTO analytics_events (user_id, event, payload, country, os, browser, language, ip)
