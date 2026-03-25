@@ -1589,13 +1589,15 @@ app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
-app.listen(port, host, async () => {
+const server = app.listen(port, host, async () => {
   console.log(`Voxenor listening on http://${host}:${port}`);
   if (s3.isConfigured()) {
     console.log("S3 object storage configured — syncing library index.");
     await s3.syncLibraryIndex(libraryDir, dataDir).catch((err) => console.error("S3 sync error:", err.message));
   }
 });
+server.requestTimeout = 300_000;  // 5 minutes — large EPUB uploads + extraction
+server.headersTimeout = 120_000;  // 2 minutes for headers
 
 async function runGenerationJob(config) {
   const job = jobs.get(config.jobId);
@@ -1725,7 +1727,7 @@ async function persistJob(id, job) {
   await fsp.writeFile(path.join(dir, "job.json"), JSON.stringify(job, null, 2));
 }
 
-async function runPythonJson(scriptRelativePath, args = []) {
+async function runPythonJson(scriptRelativePath, args = [], { timeoutMs = 120_000 } = {}) {
   const fullScriptPath = path.join(rootDir, scriptRelativePath);
   return new Promise((resolve, reject) => {
     const child = spawn(pythonBin, [fullScriptPath, ...args], {
@@ -1735,6 +1737,13 @@ async function runPythonJson(scriptRelativePath, args = []) {
 
     let stdout = "";
     let stderr = "";
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      child.kill("SIGTERM");
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 5_000);
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -1745,6 +1754,11 @@ async function runPythonJson(scriptRelativePath, args = []) {
     });
 
     child.on("close", (code) => {
+      clearTimeout(timer);
+      if (killed) {
+        reject(new Error("Processing took too long. The file may be too large or complex — try a smaller book."));
+        return;
+      }
       if (code !== 0) {
         reject(new Error(stderr.trim() || stdout.trim() || "Python script failed."));
         return;

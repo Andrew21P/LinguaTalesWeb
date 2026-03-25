@@ -889,6 +889,7 @@ async function handleBookImport(event) {
     const payload = await fetchJson("/api/books/import", {
       method: "POST",
       body: formData,
+      signal: AbortSignal.timeout(180_000),
     });
     upsertLibraryBook(payload.book);
     state.currentBook = payload.book;
@@ -2831,6 +2832,7 @@ async function handleAddDiscoverBook() {
         listenerLanguage: discoverEls.modalListenerLang?.value || els.listenerLanguage.value,
         skipAudiobook: discoverEls.modalNoAudiobook?.checked || false,
       }),
+      signal: AbortSignal.timeout(180_000),
     });
     upsertLibraryBook(payload.book);
     state.currentBook = payload.book;
@@ -3308,7 +3310,10 @@ async function fetchJson(url, options) {
   let response;
   try {
     response = await fetch(url, options);
-  } catch {
+  } catch (err) {
+    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+      throw new Error("The request took too long. The file may be too large — try a smaller book.");
+    }
     throw new Error("Could not reach the Voxenor server. Refresh and try again.");
   }
   const payload = await response.json().catch(() => ({}));

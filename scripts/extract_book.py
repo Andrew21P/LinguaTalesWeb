@@ -102,10 +102,19 @@ def extract_epub(file_path: Path, original_name: str, source_language_hint: str)
     title_entries = book.get_metadata("DC", "title")
     title = title_entries[0][0] if title_entries else Path(original_name).stem
 
+    MAX_CHAPTERS = 500
+    MAX_TOTAL_CHARS = 5_000_000  # ~5 MB of text
+
     chapter_chunks = []
     text_parts = []
+    total_chars = 0
 
     for item in book.get_items_of_type(ITEM_DOCUMENT):
+        if len(chapter_chunks) >= MAX_CHAPTERS:
+            break
+        if total_chars >= MAX_TOTAL_CHARS:
+            break
+
         soup = BeautifulSoup(item.get_content(), "html.parser")
         for tag in soup(["script", "style", "nav"]):
             tag.decompose()
@@ -115,6 +124,7 @@ def extract_epub(file_path: Path, original_name: str, source_language_hint: str)
         if not normalized:
             continue
 
+        total_chars += len(normalized)
         heading = guess_heading(soup) or f"Section {len(chapter_chunks) + 1}"
         chapter_chunks.append({"title": heading, "content": normalized})
         text_parts.append(normalized)
